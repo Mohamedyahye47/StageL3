@@ -1,1 +1,0 @@
-"# Richat-Open-Data" 

@@ -1,0 +1,236 @@
+year;indicator_code;indicator_label;value;unit
+1990;SP.DYN.LE00.IN;Life expectancy at birth, total (years);58.09;years
+1991;SP.DYN.LE00.IN;Life expectancy at birth, total (years);58.29;years
+1992;SP.DYN.LE00.IN;Life expectancy at birth, total (years);58.57;years
+1993;SP.DYN.LE00.IN;Life expectancy at birth, total (years);58.73;years
+1994;SP.DYN.LE00.IN;Life expectancy at birth, total (years);58.76;years
+1995;SP.DYN.LE00.IN;Life expectancy at birth, total (years);58.86;years
+1996;SP.DYN.LE00.IN;Life expectancy at birth, total (years);58.91;years
+1997;SP.DYN.LE00.IN;Life expectancy at birth, total (years);59.42;years
+1998;SP.DYN.LE00.IN;Life expectancy at birth, total (years);59.89;years
+1999;SP.DYN.LE00.IN;Life expectancy at birth, total (years);60.44;years
+2000;SP.DYN.LE00.IN;Life expectancy at birth, total (years);61.04;years
+2001;SP.DYN.LE00.IN;Life expectancy at birth, total (years);61.66;years
+2002;SP.DYN.LE00.IN;Life expectancy at birth, total (years);62.25;years
+2003;SP.DYN.LE00.IN;Life expectancy at birth, total (years);62.8;years
+2004;SP.DYN.LE00.IN;Life expectancy at birth, total (years);63.37;years
+2005;SP.DYN.LE00.IN;Life expectancy at birth, total (years);63.92;years
+2006;SP.DYN.LE00.IN;Life expectancy at birth, total (years);64.49;years
+2007;SP.DYN.LE00.IN;Life expectancy at birth, total (years);64.89;years
+2008;SP.DYN.LE00.IN;Life expectancy at birth, total (years);65.23;years
+2009;SP.DYN.LE00.IN;Life expectancy at birth, total (years);65.48;years
+2010;SP.DYN.LE00.IN;Life expectancy at birth, total (years);65.66;years
+2011;SP.DYN.LE00.IN;Life expectancy at birth, total (years);65.75;years
+2012;SP.DYN.LE00.IN;Life expectancy at birth, total (years);65.81;years
+2013;SP.DYN.LE00.IN;Life expectancy at birth, total (years);65.89;years
+2014;SP.DYN.LE00.IN;Life expectancy at birth, total (years);66.21;years
+2015;SP.DYN.LE00.IN;Life expectancy at birth, total (years);66.5;years
+2016;SP.DYN.LE00.IN;Life expectancy at birth, total (years);66.82;years
+2017;SP.DYN.LE00.IN;Life expectancy at birth, total (years);67.09;years
+2018;SP.DYN.LE00.IN;Life expectancy at birth, total (years);67.42;years
+2019;SP.DYN.LE00.IN;Life expectancy at birth, total (years);67.64;years
+2020;SP.DYN.LE00.IN;Life expectancy at birth, total (years);66.79;years
+2021;SP.DYN.LE00.IN;Life expectancy at birth, total (years);66.76;years
+2022;SP.DYN.LE00.IN;Life expectancy at birth, total (years);68.28;years
+2023;SP.DYN.LE00.IN;Life expectancy at birth, total (years);68.48;years
+1990;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);44.4;per 1,000
+1991;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);43.8;per 1,000
+1992;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);43.4;per 1,000
+1993;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);43.3;per 1,000
+1994;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);43.2;per 1,000
+1995;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);43.0;per 1,000
+1996;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);42.7;per 1,000
+1997;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);42.1;per 1,000
+1998;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);41.3;per 1,000
+1999;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);40.2;per 1,000
+2000;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);39.0;per 1,000
+2001;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);37.6;per 1,000
+2002;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);36.2;per 1,000
+2003;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);34.7;per 1,000
+2004;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);33.4;per 1,000
+2005;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);32.1;per 1,000
+2006;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);30.9;per 1,000
+2007;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);30.0;per 1,000
+2008;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);29.2;per 1,000
+2009;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);28.5;per 1,000
+2010;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);28.0;per 1,000
+2011;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);27.5;per 1,000
+2012;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);27.1;per 1,000
+2013;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);26.6;per 1,000
+2014;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);26.1;per 1,000
+2015;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);25.6;per 1,000
+2016;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);25.1;per 1,000
+2017;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);24.6;per 1,000
+2018;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);24.1;per 1,000
+2019;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);23.5;per 1,000
+2020;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);23.0;per 1,000
+2021;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);22.5;per 1,000
+2022;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);22.0;per 1,000
+2023;SH.DYN.NMRT;Mortality rate, neonatal (per 1,000 live births);21.5;per 1,000
+1990;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);115.4;per 1,000
+1991;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);114.1;per 1,000
+1992;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);113.1;per 1,000
+1993;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);112.3;per 1,000
+1994;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);111.6;per 1,000
+1995;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);110.8;per 1,000
+1996;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);109.7;per 1,000
+1997;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);107.9;per 1,000
+1998;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);105.5;per 1,000
+1999;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);102.3;per 1,000
+2000;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);98.2;per 1,000
+2001;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);93.5;per 1,000
+2002;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);88.1;per 1,000
+2003;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);82.5;per 1,000
+2004;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);77.0;per 1,000
+2005;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);71.8;per 1,000
+2006;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);67.3;per 1,000
+2007;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);63.5;per 1,000
+2008;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);60.4;per 1,000
+2009;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);57.9;per 1,000
+2010;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);56.1;per 1,000
+2011;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);54.5;per 1,000
+2012;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);53.1;per 1,000
+2013;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);51.7;per 1,000
+2014;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);50.4;per 1,000
+2015;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);48.9;per 1,000
+2016;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);47.4;per 1,000
+2017;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);45.9;per 1,000
+2018;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);44.5;per 1,000
+2019;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);43.0;per 1,000
+2020;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);41.7;per 1,000
+2021;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);40.3;per 1,000
+2022;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);39.1;per 1,000
+2023;SH.DYN.MORT;Mortality rate, under-5 (per 1,000 live births);37.8;per 1,000
+2000;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.38;%
+2001;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.57;%
+2002;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);4.0;%
+2003;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);4.03;%
+2004;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.7;%
+2005;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.4;%
+2006;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);2.7;%
+2007;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);2.88;%
+2008;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.01;%
+2009;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.11;%
+2010;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);2.64;%
+2011;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);2.47;%
+2012;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);2.65;%
+2013;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);2.87;%
+2014;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.47;%
+2015;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.67;%
+2016;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.19;%
+2017;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.42;%
+2018;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);2.88;%
+2019;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.09;%
+2020;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.0;%
+2021;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);3.78;%
+2022;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);4.67;%
+2023;SH.XPD.CHEX.GD.ZS;Current health expenditure (% of GDP);4.34;%
+1990;SE.PRM.ENRR;School enrollment, primary (% gross);46.9;%
+1991;SE.PRM.ENRR;School enrollment, primary (% gross);49.17;%
+1992;SE.PRM.ENRR;School enrollment, primary (% gross);53.93;%
+1993;SE.PRM.ENRR;School enrollment, primary (% gross);60.92;%
+1994;SE.PRM.ENRR;School enrollment, primary (% gross);67.15;%
+1995;SE.PRM.ENRR;School enrollment, primary (% gross);71.01;%
+1996;SE.PRM.ENRR;School enrollment, primary (% gross);74.58;%
+1997;SE.PRM.ENRR;School enrollment, primary (% gross);78.51;%
+1998;SE.PRM.ENRR;School enrollment, primary (% gross);80.77;%
+1999;SE.PRM.ENRR;School enrollment, primary (% gross);82.45;%
+2000;SE.PRM.ENRR;School enrollment, primary (% gross);82.0;%
+2001;SE.PRM.ENRR;School enrollment, primary (% gross);80.32;%
+2002;SE.PRM.ENRR;School enrollment, primary (% gross);81.04;%
+2003;SE.PRM.ENRR;School enrollment, primary (% gross);82.68;%
+2004;SE.PRM.ENRR;School enrollment, primary (% gross);88.96;%
+2005;SE.PRM.ENRR;School enrollment, primary (% gross);89.08;%
+2006;SE.PRM.ENRR;School enrollment, primary (% gross);92.25;%
+2007;SE.PRM.ENRR;School enrollment, primary (% gross);94.51;%
+2008;SE.PRM.ENRR;School enrollment, primary (% gross);91.18;%
+2009;SE.PRM.ENRR;School enrollment, primary (% gross);97.03;%
+2010;SE.PRM.ENRR;School enrollment, primary (% gross);97.86;%
+2011;SE.PRM.ENRR;School enrollment, primary (% gross);95.44;%
+2012;SE.PRM.ENRR;School enrollment, primary (% gross);94.9;%
+2013;SE.PRM.ENRR;School enrollment, primary (% gross);93.64;%
+2014;SE.PRM.ENRR;School enrollment, primary (% gross);93.9;%
+2015;SE.PRM.ENRR;School enrollment, primary (% gross);96.7;%
+2016;SE.PRM.ENRR;School enrollment, primary (% gross);88.66;%
+2017;SE.PRM.ENRR;School enrollment, primary (% gross);87.82;%
+2018;SE.PRM.ENRR;School enrollment, primary (% gross);90.22;%
+2019;SE.PRM.ENRR;School enrollment, primary (% gross);90.27;%
+2020;SE.PRM.ENRR;School enrollment, primary (% gross);93.8;%
+2023;SE.PRM.ENRR;School enrollment, primary (% gross);104.02;%
+2024;SE.PRM.ENRR;School enrollment, primary (% gross);105.43;%
+2001;SE.SEC.NENR;School enrollment, secondary (% net);13.53;%
+2002;SE.SEC.NENR;School enrollment, secondary (% net);13.62;%
+2004;SE.SEC.NENR;School enrollment, secondary (% net);13.09;%
+2005;SE.SEC.NENR;School enrollment, secondary (% net);14.26;%
+2006;SE.SEC.NENR;School enrollment, secondary (% net);14.53;%
+2012;SE.SEC.NENR;School enrollment, secondary (% net);22.44;%
+2013;SE.SEC.NENR;School enrollment, secondary (% net);22.06;%
+2014;SE.SEC.NENR;School enrollment, secondary (% net);23.7;%
+2015;SE.SEC.NENR;School enrollment, secondary (% net);24.98;%
+2016;SE.SEC.NENR;School enrollment, secondary (% net);27.46;%
+2017;SE.SEC.NENR;School enrollment, secondary (% net);28.19;%
+2018;SE.SEC.NENR;School enrollment, secondary (% net);30.98;%
+2000;SE.ADT.LITR.ZS;Literacy rate, adult total (% of people ages 15+);51.21;%
+2013;SE.ADT.LITR.ZS;Literacy rate, adult total (% of people ages 15+);62.07;%
+2015;SE.ADT.LITR.ZS;Literacy rate, adult total (% of people ages 15+);65.11;%
+2020;SE.ADT.LITR.ZS;Literacy rate, adult total (% of people ages 15+);59.53;%
+1997;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.59;%
+1999;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.72;%
+2001;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);2.11;%
+2002;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);2.28;%
+2003;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);2.37;%
+2004;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.95;%
+2006;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.96;%
+2011;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);2.33;%
+2012;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);2.16;%
+2013;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);2.29;%
+2014;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);2.56;%
+2015;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);2.83;%
+2016;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.94;%
+2019;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.82;%
+2020;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.8;%
+2021;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.89;%
+2022;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);1.39;%
+2023;SE.XPD.TOTL.GD.ZS;Government expenditure on education, total (% of GDP);4.72;%
+1990;NY.GDP.PCAP.CD;GDP per capita (current US$);772.03;USD
+1991;NY.GDP.PCAP.CD;GDP per capita (current US$);1061.68;USD
+1992;NY.GDP.PCAP.CD;GDP per capita (current US$);1036.47;USD
+1993;NY.GDP.PCAP.CD;GDP per capita (current US$);849.62;USD
+1994;NY.GDP.PCAP.CD;GDP per capita (current US$);864.6;USD
+1995;NY.GDP.PCAP.CD;GDP per capita (current US$);904.72;USD
+1996;NY.GDP.PCAP.CD;GDP per capita (current US$);904.12;USD
+1997;NY.GDP.PCAP.CD;GDP per capita (current US$);859.28;USD
+1998;NY.GDP.PCAP.CD;GDP per capita (current US$);821.27;USD
+1999;NY.GDP.PCAP.CD;GDP per capita (current US$);781.34;USD
+2000;NY.GDP.PCAP.CD;GDP per capita (current US$);680.91;USD
+2001;NY.GDP.PCAP.CD;GDP per capita (current US$);651.82;USD
+2002;NY.GDP.PCAP.CD;GDP per capita (current US$);648.88;USD
+2003;NY.GDP.PCAP.CD;GDP per capita (current US$);732.02;USD
+2004;NY.GDP.PCAP.CD;GDP per capita (current US$);823.55;USD
+2005;NY.GDP.PCAP.CD;GDP per capita (current US$);998.97;USD
+2006;NY.GDP.PCAP.CD;GDP per capita (current US$);1300.6;USD
+2007;NY.GDP.PCAP.CD;GDP per capita (current US$);1405.15;USD
+2008;NY.GDP.PCAP.CD;GDP per capita (current US$);1635.56;USD
+2009;NY.GDP.PCAP.CD;GDP per capita (current US$);1435.43;USD
+2010;NY.GDP.PCAP.CD;GDP per capita (current US$);1659.96;USD
+2011;NY.GDP.PCAP.CD;GDP per capita (current US$);1931.2;USD
+2012;NY.GDP.PCAP.CD;GDP per capita (current US$);1859.12;USD
+2013;NY.GDP.PCAP.CD;GDP per capita (current US$);1934.24;USD
+2014;NY.GDP.PCAP.CD;GDP per capita (current US$);1713.01;USD
+2015;NY.GDP.PCAP.CD;GDP per capita (current US$);1554.95;USD
+2016;NY.GDP.PCAP.CD;GDP per capita (current US$);1565.77;USD
+2017;NY.GDP.PCAP.CD;GDP per capita (current US$);1615.0;USD
+2018;NY.GDP.PCAP.CD;GDP per capita (current US$);1722.94;USD
+2019;NY.GDP.PCAP.CD;GDP per capita (current US$);1767.07;USD
+2020;NY.GDP.PCAP.CD;GDP per capita (current US$);1795.76;USD
+2021;NY.GDP.PCAP.CD;GDP per capita (current US$);1947.79;USD
+2022;NY.GDP.PCAP.CD;GDP per capita (current US$);1960.35;USD
+2023;NY.GDP.PCAP.CD;GDP per capita (current US$);2135.78;USD
+2024;NY.GDP.PCAP.CD;GDP per capita (current US$);2110.12;USD
+1993;SI.POV.DDAY;Poverty headcount ratio at $2.15/day 2017 PPP (% of population);54.1;%
+1995;SI.POV.DDAY;Poverty headcount ratio at $2.15/day 2017 PPP (% of population);31.7;%
+2000;SI.POV.DDAY;Poverty headcount ratio at $2.15/day 2017 PPP (% of population);30.7;%
+2004;SI.POV.DDAY;Poverty headcount ratio at $2.15/day 2017 PPP (% of population);28.5;%
+2008;SI.POV.DDAY;Poverty headcount ratio at $2.15/day 2017 PPP (% of population);19.2;%
+2014;SI.POV.DDAY;Poverty headcount ratio at $2.15/day 2017 PPP (% of population);11.7;%
+2019;SI.POV.DDAY;Poverty headcount ratio at $2.15/day 2017 PPP (% of population);10.2;%
