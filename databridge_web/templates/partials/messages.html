@@ -1,0 +1,9 @@
+{% if messages %}
+  <div class="message-stack">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }} app-alert" role="alert">
+        {{ message }}
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

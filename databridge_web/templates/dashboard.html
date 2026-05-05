@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Tableau de bord | Richat DataBridge{% endblock %}
+{% block page_title %}Tableau de bord{% endblock %}
+
+{% block content %}
+  {% if backend_error %}
+    <div class="alert alert-warning app-alert">{{ backend_error }}</div>
+  {% endif %}
+
+  {# ── Page Header ─────────────────────────────────────── #}
+  <div class="page-intro">
+    <div>
+      <span class="eyebrow">Vue d'ensemble</span>
+      <h2>Catalogue publié et signaux clés</h2>
+      <p>Suivez les datasets économiques publiés et préparez les prochaines versions.</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">Créer un dataset</a>
+  </div>
+
+  {# ── Metric Summary ───────────────────────────────────── #}
+  <section class="metric-grid">
+    <article class="metric-card accent-blue">
+      <span>Datasets</span>
+      <strong>{{ summary.datasets }}</strong>
+      <small>Total publié</small>
+    </article>
+    <article class="metric-card accent-teal">
+      <span>Versions</span>
+      <strong>{{ summary.versions }}</strong>
+      <small>Historique cumulé</small>
+    </article>
+    <article class="metric-card accent-green">
+      <span>Pays</span>
+      <strong>{{ summary.countries }}</strong>
+      <small>Couverture géographique</small>
+    </article>
+    <article class="metric-card accent-indigo">
+      <span>Indicateurs</span>
+      <strong>{{ summary.indicators }}</strong>
+      <small>Variables utilisées</small>
+    </article>
+  </section>
+
+  {# ── Activity + Rankings ──────────────────────────────── #}
+  <section class="content-grid two-one" style="margin-bottom:16px;">
+    <div class="panel" style="margin-bottom:0;">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Activité</span>
+          <h3>Chronologie des publications</h3>
+        </div>
+      </div>
+      {% if timeline %}
+        <div class="timeline-chart">
+          {% for point in timeline %}
+            <div class="timeline-point" title="{{ point.title }}">
+              <div class="timeline-bar" style="height: {{ point.height }}px"></div>
+              <span>{{ point.label }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state compact">
+          <strong>Aucune publication</strong>
+          <p>La chronologie apparaîtra après la première publication.</p>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="panel" style="margin-bottom:0;">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Indicateurs</span>
+          <h3>Top indicateurs</h3>
+        </div>
+      </div>
+      {% if top_indicators %}
+        <div class="rank-list">
+          {% for indicator in top_indicators %}
+            <div class="rank-row">
+              <span>{{ forloop.counter }}</span>
+              <div style="flex:1; min-width:0;">
+                <strong>{{ indicator.code }}</strong>
+                <small>{{ indicator.name }}</small>
+              </div>
+              <em>{{ indicator.count }}</em>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state compact">
+          <strong>Aucun indicateur</strong>
+          <p>Les usages apparaîtront avec les versions publiées.</p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ── Recent Datasets ──────────────────────────────────── #}
+  <section class="panel">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Catalogue</span>
+        <h3>Publications récentes</h3>
+      </div>
+      <a class="btn btn-soft" href="{% url 'dashboard:dataset_list' %}">Voir tout →</a>
+    </div>
+
+    {% if datasets %}
+      <div class="dataset-card-list">
+        {% for dataset in datasets %}
+          <article class="dataset-card">
+            <div style="flex:1; min-width:0;">
+              <span class="status-badge success">Publié</span>
+              <h4>{{ dataset.title }}</h4>
+              <p>{{ dataset.description|default:""|truncatechars:140 }}</p>
+              <div class="chip-row">
+                <span>{{ dataset.slug }}</span>
+                <span>{{ dataset.country.name }}</span>
+                <span>v{{ dataset.latest_version }}</span>
+              </div>
+            </div>
+            <a class="btn btn-outline-primary" style="flex-shrink:0;" href="{% url 'dashboard:dataset_detail' dataset.slug %}">
+              Détails
+            </a>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <strong>Aucun dataset publié</strong>
+        <p>Commencez par créer une publication pour alimenter le catalogue.</p>
+        <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">Créer le premier dataset</a>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

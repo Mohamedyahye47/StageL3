@@ -3,3 +3,10 @@ __pycache__/
 *.db 
 .env 
 .ipynb_checkpoints/ 
+.pytest_cache/
+.coverage
+coverage/
+tmp/
+*.tmp
+*.log
+databridge_web/logs/

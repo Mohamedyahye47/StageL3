@@ -1,56 +1,55 @@
-# ============================================================
-#  databridge-api/app/main.py
-#
-#  Entry point for the Richat DataBridge API.
-#
-#  Start with:
-#      cd databridge-api
-#      uvicorn app.main:app --reload
-#
-#  Docs available at:
-#      http://127.0.0.1:8000/docs   (Swagger UI)
-#      http://127.0.0.1:8000/redoc  (ReDoc)
-# ============================================================
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import datasets, sources
+API_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+for path in (API_ROOT, PROJECT_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-# ── App ────────────────────────────────────────────────────
+from core import db as core_db
+
+from app.api import api_router
+from app.config import API_TITLE
+from app.database import Base, engine
+
+# Import all models so SQLAlchemy registers them with Base.metadata before create_all
+import app.models  # noqa: F401
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize core metadata tables and create any missing publication tables.
+    core_db.init_db()
+    core_db.seed_metadata(force=False)
+    Base.metadata.create_all(bind=engine)
+    yield
+
+
 app = FastAPI(
-    title       = "Richat DataBridge API",
-    description = (
-        "Read-only REST API for Mauritania economic datasets.\n\n"
-        "**Metadata** is read from `databridge.db` (SQLite).\n"
-        "**Real data** is read from CSV files under `data/`.\n\n"
-        "Run `python run_all.py` to populate data files before querying `/data` endpoints."
+    title=API_TITLE,
+    description=(
+        "API metadata-only de Richat DataBridge. "
+        "La creation de dataset reste ephemere jusqu'a la publication. "
+        "Apres succes de publication vers Hugging Face, le miroir SQLite local est mis a jour. "
+        "Les valeurs publiees restent dans les fichiers distants, le miroir SQLite conserve les metadonnees."
     ),
-    version     = "1.0.0",
-    docs_url    = "/docs",
-    redoc_url   = "/redoc",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
-# ── CORS (open for local dev) ──────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["*"],
-    allow_credentials = True,
-    allow_methods     = ["GET"],
-    allow_headers     = ["*"],
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ── Routers ────────────────────────────────────────────────
-app.include_router(datasets.router)
-app.include_router(sources.router)
-
-
-# ── Health check ───────────────────────────────────────────
-@app.get("/", tags=["Health"])
-def root():
-    return {
-        "service" : "Richat DataBridge API",
-        "version" : "1.0.0",
-        "status"  : "running",
-        "docs"    : "/docs",
-    }
+app.include_router(api_router)

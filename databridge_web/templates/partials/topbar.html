@@ -1,0 +1,22 @@
+<header class="topbar">
+  <div class="topbar-meta">
+    <span class="eyebrow">Console interne</span>
+    <h1>{% block page_title %}Richat DataBridge{% endblock %}</h1>
+  </div>
+  <div class="topbar-actions">
+    <a class="btn btn-soft" href="{% url 'dashboard:dataset_list' %}">
+      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 20 20" fill="currentColor" style="opacity:.8">
+        <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/>
+        <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/>
+        <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/>
+      </svg>
+      Catalogue
+    </a>
+    <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">
+      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 20 20" fill="currentColor" style="opacity:.9">
+        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
+      </svg>
+      Créer un dataset
+    </a>
+  </div>
+</header>

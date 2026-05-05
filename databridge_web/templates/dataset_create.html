@@ -1,0 +1,504 @@
+{% extends "base.html" %}
+
+{% block title %}Créer un dataset | Richat DataBridge{% endblock %}
+{% block page_title %}Créer un dataset{% endblock %}
+
+{% block content %}
+  {% if backend_error %}
+    <div class="alert alert-warning app-alert">{{ backend_error }}</div>
+  {% endif %}
+
+  <section class="page-intro">
+    <div>
+      <span class="eyebrow">Builder</span>
+      <h2>Préparer une publication structurée et vérifiable.</h2>
+      <p>Suivez les étapes, contrôlez la sélection, puis publiez vers le dépôt distant.</p>
+    </div>
+  </section>
+
+  {% if ai_recommendation %}
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Préremplissage IA</span>
+          <h3>Proposition appliquée au builder</h3>
+        </div>
+        <span class="soft-pill">Confiance : {{ ai_recommendation.confidence }}</span>
+      </div>
+      <p>
+        Les champs ci-dessous ont été préremplis par l’assistant IA. Vérifiez tout avant publication.
+      </p>
+    </section>
+  {% endif %}
+
+  <form
+    method="post"
+    id="dataset-create-form"
+    class="builder-layout"
+    data-topics-url="{% url 'dashboard:ajax_topics' %}"
+    data-indicators-url="{% url 'dashboard:ajax_indicators' %}"
+    data-countries-url="{% url 'dashboard:ajax_countries' %}"
+  >
+    {% csrf_token %}
+
+    <aside class="builder-stepper">
+      <div class="stepper-item active">
+        <span>01</span>
+        <div class="stepper-item-content">
+          <strong>Mode</strong>
+          <small>Stratégie de publication</small>
+        </div>
+      </div>
+
+      <div class="stepper-item active">
+        <span>02</span>
+        <div class="stepper-item-content">
+          <strong>Données</strong>
+          <small>Source et portée</small>
+        </div>
+      </div>
+
+      <div class="stepper-item active">
+        <span>03</span>
+        <div class="stepper-item-content">
+          <strong>Identité</strong>
+          <small>Titre et contexte</small>
+        </div>
+      </div>
+
+      <div class="stepper-item">
+        <span>04</span>
+        <div class="stepper-item-content">
+          <strong>Vérification</strong>
+          <small>Résumé final</small>
+        </div>
+      </div>
+
+      <div class="stepper-item">
+        <span>05</span>
+        <div class="stepper-item-content">
+          <strong>Publication</strong>
+          <small>Envoi distant</small>
+        </div>
+      </div>
+    </aside>
+
+    <div class="builder-main">
+
+      {% if form.errors %}
+        <div class="alert alert-danger app-alert mb-3">
+          Vérifiez les champs du formulaire avant de publier.
+        </div>
+      {% endif %}
+
+      <section class="panel builder-section">
+        <div class="section-title">
+          <span>01</span>
+          <div>
+            <h3>Mode de publication</h3>
+            <p>Choisissez entre un nouveau dataset ou une nouvelle version immuable.</p>
+          </div>
+        </div>
+
+        <div class="segmented-control" role="radiogroup">
+          <label>
+            <input type="radio" name="mode" value="new" {% if form_values.mode != "version" %}checked{% endif %}>
+            <span>Nouveau dataset</span>
+          </label>
+
+          <label>
+            <input type="radio" name="mode" value="version" {% if form_values.mode == "version" %}checked{% endif %}>
+            <span>Nouvelle version</span>
+          </label>
+        </div>
+
+        <div class="mt-3" id="existing-dataset-wrap">
+          <label class="form-label" for="existing_slug">Dataset à versionner</label>
+          <select class="form-select" id="existing_slug" name="existing_slug">
+            <option value="">Sélectionner un dataset</option>
+            {% for dataset in datasets %}
+              <option value="{{ dataset.slug }}" {% if form_values.existing_slug == dataset.slug %}selected{% endif %}>
+                {{ dataset.title }} — {{ dataset.slug }}
+              </option>
+            {% endfor %}
+          </select>
+          {% if form.existing_slug.errors %}
+            <div class="field-error">{{ form.existing_slug.errors.0 }}</div>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="panel builder-section">
+        <div class="section-title">
+          <span>02</span>
+          <div>
+            <h3>Définition des données</h3>
+            <p>Sélectionnez la source, le thème, les indicateurs, le pays et la période.</p>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="form-label" for="source_code">Source de données</label>
+            <select class="form-select" id="source_code" name="source_code">
+              {% for source in sources %}
+                <option value="{{ source.code }}" {% if form_values.source_code == source.code %}selected{% endif %}>
+                  {{ source.name }} ({{ source.code }})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label class="form-label" for="topic_id">Thème</label>
+            <select class="form-select" id="topic_id" name="topic_id">
+              <option value="">Tous les thèmes</option>
+              {% for topic in topics %}
+                <option value="{{ topic.id }}" {% if form_values.topic_id|stringformat:"s" == topic.id|stringformat:"s" %}selected{% endif %}>
+                  {{ topic.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label class="form-label" for="country_search">Rechercher un pays</label>
+            <input
+              class="form-control"
+              id="country_search"
+              name="country_search"
+              value="{{ country_search }}"
+              placeholder="Mauritanie, MRT…"
+            >
+          </div>
+
+          <div>
+            <label class="form-label" for="country_id">Pays</label>
+            <select class="form-select" id="country_id" name="country_id">
+              <option value="">Sélectionner un pays</option>
+              {% for country in countries %}
+                <option value="{{ country.id }}" {% if form_values.country_id|stringformat:"s" == country.id|stringformat:"s" %}selected{% endif %}>
+                  {{ country.name }} ({{ country.code_iso3 }})
+                </option>
+              {% endfor %}
+            </select>
+            {% if form.country_id.errors %}
+              <div class="field-error">{{ form.country_id.errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <label class="form-label" for="start_date">Date de début</label>
+            <input
+              class="form-control"
+              id="start_date"
+              type="date"
+              name="start_date"
+              value="{{ form_values.start_date }}"
+            >
+          </div>
+
+          <div>
+            <label class="form-label" for="end_date">Date de fin</label>
+            <input
+              class="form-control"
+              id="end_date"
+              type="date"
+              name="end_date"
+              value="{{ form_values.end_date }}"
+            >
+            {% if form.end_date.errors %}
+              <div class="field-error">{{ form.end_date.errors.0 }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="indicator-zone">
+          <div class="indicator-toolbar">
+            <div>
+              <label class="form-label" for="indicator_search">Rechercher un indicateur</label>
+              <input
+                class="form-control"
+                id="indicator_search"
+                name="indicator_search"
+                value="{{ indicator_search }}"
+                placeholder="PIB, dette, population…"
+              >
+            </div>
+
+            <div class="selection-counter">
+              <span id="selected-indicator-count">{{ selected_indicator_ids|length }}</span>
+              sélectionné(s)
+            </div>
+          </div>
+
+          {% if form.indicator_ids.errors %}
+            <div class="field-error mb-2">{{ form.indicator_ids.errors.0 }}</div>
+          {% endif %}
+
+          <div class="indicator-list" id="indicator-list">
+
+            {% if ai_selected_indicators %}
+              <div class="ai-prefill-box mb-3">
+                <strong>Indicateurs proposés par l’assistant IA</strong>
+                <p>Vous pouvez les garder, les retirer ou ajouter d’autres indicateurs avant publication.</p>
+
+                {% for indicator in ai_selected_indicators %}
+                  <label class="indicator-option ai-selected">
+                    <input
+                      type="checkbox"
+                      name="indicator_ids"
+                      value="{{ indicator.id }}"
+                      checked
+                    >
+                    <span>
+                      <strong>{{ indicator.code }}</strong>
+                      <small>{{ indicator.name }}</small>
+                    </span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            {% for indicator in indicators %}
+              {% if indicator.id|stringformat:"s" not in selected_indicator_ids %}
+                <label class="indicator-option">
+                  <input
+                    type="checkbox"
+                    name="indicator_ids"
+                    value="{{ indicator.id }}"
+                  >
+                  <span>
+                    <strong>{{ indicator.code }}</strong>
+                    <small>{{ indicator.name }}</small>
+                  </span>
+                </label>
+              {% elif not ai_selected_indicators %}
+                <label class="indicator-option">
+                  <input
+                    type="checkbox"
+                    name="indicator_ids"
+                    value="{{ indicator.id }}"
+                    checked
+                  >
+                  <span>
+                    <strong>{{ indicator.code }}</strong>
+                    <small>{{ indicator.name }}</small>
+                  </span>
+                </label>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="panel builder-section">
+        <div class="section-title">
+          <span>03</span>
+          <div>
+            <h3>Informations du dataset</h3>
+            <p>Rédigez un titre clair et une description exploitable dans le catalogue.</p>
+          </div>
+        </div>
+
+        <div class="form-grid one-column">
+          <div>
+            <label class="form-label" for="title">Titre du dataset</label>
+            <input
+              class="form-control"
+              id="title"
+              name="title"
+              value="{{ form_values.title }}"
+              maxlength="180"
+              placeholder="Ex : Dette extérieure de la Mauritanie 2010–2023"
+            >
+            {% if form.title.errors %}
+              <div class="field-error">{{ form.title.errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <label class="form-label" for="description">Description</label>
+            <textarea
+              class="form-control"
+              id="description"
+              name="description"
+              rows="5"
+              placeholder="Décrivez le périmètre, le contexte et l'usage du dataset."
+            >{{ form_values.description }}</textarea>
+            {% if form.description.errors %}
+              <div class="field-error">{{ form.description.errors.0 }}</div>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+      <section class="panel builder-section">
+        <div class="section-title">
+          <span>04</span>
+          <div>
+            <h3>Vérification</h3>
+            <p>Résumé final de la publication avant l'envoi distant.</p>
+          </div>
+        </div>
+
+        <div class="review-grid">
+          <div class="review-card">
+            <span>Mode</span>
+            <strong id="review-mode">
+              {% if form_values.mode == "version" %}Nouvelle version{% else %}Nouveau dataset{% endif %}
+            </strong>
+          </div>
+
+          <div class="review-card">
+            <span>Source</span>
+            <strong id="review-source">{{ form_values.source_code|default:"—" }}</strong>
+          </div>
+
+          <div class="review-card">
+            <span>Pays</span>
+            <strong id="review-country">
+              {% if selected_country %}{{ selected_country.name }}{% else %}—{% endif %}
+            </strong>
+          </div>
+
+          <div class="review-card">
+            <span>Indicateurs</span>
+            <strong id="review-indicators">{{ selected_indicator_ids|length }}</strong>
+          </div>
+        </div>
+
+        {% if selected_indicators %}
+          <div class="table-responsive mt-3">
+            <table class="table app-table compact">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Nom</th>
+                  <th>Unité</th>
+                  <th>Périodicité</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for indicator in selected_indicators %}
+                  <tr>
+                    <td><strong>{{ indicator.code }}</strong></td>
+                    <td>{{ indicator.name }}</td>
+                    <td>{{ indicator.unit|default:"—" }}</td>
+                    <td>{{ indicator.periodicity|default:"—" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state compact mt-3">
+            <strong>Aucun indicateur sélectionné</strong>
+            <p>Ajoutez au moins un indicateur pour publier.</p>
+          </div>
+        {% endif %}
+      </section>
+
+      <section class="publish-panel">
+        {% if preview_error %}
+  <div class="alert alert-warning app-alert">
+    {{ preview_error }}
+  </div>
+{% endif %}
+
+{% if data_preview %}
+  <section class="panel builder-section">
+    <div class="section-title">
+      <span>05</span>
+      <div>
+        <h3>Aperçu réel des données</h3>
+        <p>
+          Données construites depuis la source avant publication.
+          Vérifiez les lignes, les valeurs manquantes et les colonnes.
+        </p>
+      </div>
+    </div>
+
+    <div class="review-grid">
+      <div class="review-card">
+        <span>Lignes totales</span>
+        <strong>{{ data_preview.row_count }}</strong>
+      </div>
+
+      <div class="review-card">
+        <span>Lignes affichées</span>
+        <strong>{{ data_preview.preview_count }}</strong>
+      </div>
+
+      <div class="review-card">
+        <span>Valeurs non nulles</span>
+        <strong>{{ data_preview.non_null_value_count }}</strong>
+      </div>
+
+      <div class="review-card">
+        <span>Indicateurs manquants</span>
+        <strong>{{ data_preview.missing_indicator_codes|length }}</strong>
+      </div>
+    </div>
+
+    {% if data_preview.missing_indicator_codes %}
+      <div class="alert alert-warning app-alert mt-3">
+        Aucun résultat trouvé pour certains indicateurs :
+        {{ data_preview.missing_indicator_codes|join:", " }}
+      </div>
+    {% endif %}
+
+    {% if preview_rows %}
+      <div class="table-responsive mt-3">
+        <table class="table app-table compact">
+          <thead>
+            <tr>
+              {% for column in preview_columns %}
+                <th>{{ column }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in preview_rows %}
+              <tr>
+                {% for value in row %}
+                  <td>{{ value|default:"—" }}</td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state compact mt-3">
+        <strong>Aucune ligne à afficher</strong>
+        <p>La prévisualisation n’a retourné aucune ligne exploitable.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endif %}
+
+<section class="publish-panel">
+  <div>
+    <span class="eyebrow">Étape 05 — Contrôle et publication</span>
+    <h3>Prévisualiser puis publier le dataset</h3>
+    <p>
+      Commencez par générer un aperçu réel des données. Publiez seulement après vérification.
+    </p>
+  </div>
+
+  <div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-soft btn-lg" type="submit" name="action" value="preview">
+      Aperçu des données
+    </button>
+
+    <button class="btn btn-primary btn-lg" id="publish-button" type="submit" name="action" value="publish">
+      Publier le dataset
+    </button>
+  </div>
+</section>
+      </section>
+
+    </div>
+  </form>
+{% endblock %}

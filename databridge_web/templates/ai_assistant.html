@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Assistant IA | Richat DataBridge{% endblock %}
+{% block page_title %}Assistant IA{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div>
+    <span class="eyebrow">Assistant dataset</span>
+    <h2>Transformer une idée d’analyse en proposition de dataset.</h2>
+    <p>
+      Décrivez votre besoin. L’assistant propose une source, un pays, une période,
+      un titre, une description et des indicateurs validés par la base de métadonnées.
+    </p>
+  </div>
+</section>
+
+<section class="panel">
+  <form method="post">
+    {% csrf_token %}
+
+    <label class="form-label" for="user_request">Votre besoin d’analyse</label>
+    <textarea
+      class="form-control"
+      id="user_request"
+      name="user_request"
+      rows="4"
+      placeholder="Ex : Je veux analyser la croissance économique en Mauritanie."
+    >{{ user_request }}</textarea>
+
+    <div class="mt-3">
+      <button class="btn btn-primary" type="submit" name="action" value="generate">
+        {% if recommendation %}
+          Mettre à jour la proposition
+        {% else %}
+          Proposer une configuration
+        {% endif %}
+      </button>
+    </div>
+  </form>
+</section>
+
+{% if error %}
+  <div class="alert alert-warning app-alert">{{ error }}</div>
+{% endif %}
+
+{% if recommendation %}
+<section class="panel">
+  <div class="panel-heading">
+    <div>
+      <span class="eyebrow">Proposition IA</span>
+      <h3>{{ recommendation.title }}</h3>
+    </div>
+    <span class="soft-pill">Confiance : {{ recommendation.confidence }}</span>
+  </div>
+
+  <p>{{ recommendation.description }}</p>
+
+  <div class="info-grid">
+    <div class="info-row">
+      <span>Source</span>
+      <strong>{{ recommendation.source_code }}</strong>
+    </div>
+
+    {% if recommendation.topic_name %}
+      <div class="info-row">
+        <span>Thème</span>
+        <strong>{{ recommendation.topic_name }}</strong>
+      </div>
+    {% endif %}
+
+    <div class="info-row">
+      <span>Pays</span>
+      <strong>{{ recommendation.country_name }}</strong>
+    </div>
+
+    <div class="info-row">
+      <span>Période</span>
+      <strong>{{ recommendation.start_date }} → {{ recommendation.end_date }}</strong>
+    </div>
+
+    <div class="info-row">
+      <span>Indicateurs validés</span>
+      <strong>{{ recommendation.indicators|length }}</strong>
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <form method="post">
+      {% csrf_token %}
+      <button class="btn btn-primary" type="submit" name="action" value="apply">
+        Utiliser cette proposition dans le builder
+      </button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-heading">
+    <div>
+      <span class="eyebrow">Indicateurs recommandés</span>
+      <h3>Indicateurs validés par la base locale</h3>
+    </div>
+  </div>
+
+  {% if recommendation.indicators %}
+    <div class="table-responsive">
+      <table class="table app-table align-middle">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Nom</th>
+            <th>Raison</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for indicator in recommendation.indicators %}
+            <tr>
+              <td><strong>{{ indicator.code }}</strong></td>
+              <td>{{ indicator.name }}</td>
+              <td>{{ indicator.reason }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state compact">
+      <strong>Aucun indicateur validé</strong>
+      <p>
+        L’assistant a proposé une idée, mais aucun indicateur n’a été validé dans la base locale.
+        Reformulez la demande ou choisissez un domaine plus proche du catalogue disponible.
+      </p>
+    </div>
+  {% endif %}
+
+  {% if recommendation.missing_indicator_codes %}
+    <div class="alert alert-warning app-alert mt-3">
+      Certains indicateurs proposés par l’IA ne sont pas présents dans la base locale et ont été ignorés :
+      {{ recommendation.missing_indicator_codes|join:", " }}
+    </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block title %}Catalogue | Richat DataBridge{% endblock %}
+{% block page_title %}Catalogue de données{% endblock %}
+
+{% block content %}
+  {% if backend_error %}
+    <div class="alert alert-warning app-alert">{{ backend_error }}</div>
+  {% endif %}
+
+  {# ── Page Header ─────────────────────────────────────── #}
+  <div class="catalogue-header">
+    <div>
+      <h2>Catalogue de données</h2>
+      <p>Explorez les datasets économiques publiés — {{ total_count }} publication(s) disponible(s).</p>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <button class="btn btn-soft" type="submit" name="action" value="sync_hf">
+        Synchroniser avec Hugging Face
+      </button>
+    </form>
+  </div>
+
+  {# ── Search Bar ──────────────────────────────────────── #}
+  <form method="get" class="catalogue-search-form" id="catalogue-search-form">
+    <div class="catalogue-search-wrap">
+      <input
+        class="catalogue-search-input"
+        type="search"
+        name="q"
+        value="{{ filters.q }}"
+        placeholder="Rechercher par titre, slug, pays, dépôt…"
+        autocomplete="off"
+      >
+
+      {% if filters.country %}
+        <input type="hidden" name="country" value="{{ filters.country }}">
+      {% endif %}
+
+      {% if filters.status %}
+        <input type="hidden" name="status" value="{{ filters.status }}">
+      {% endif %}
+
+      <button class="catalogue-search-btn" type="submit">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/>
+        </svg>
+        Rechercher
+      </button>
+    </div>
+  </form>
+
+  {# ── Catalogue layout: filter sidebar + card grid ────── #}
+  <div class="catalogue-layout">
+
+    {# ── Filter Sidebar ──────────────────────────────── #}
+    <aside class="catalogue-filter">
+      <form method="get" id="filter-form">
+        {% if filters.q %}
+          <input type="hidden" name="q" value="{{ filters.q }}">
+        {% endif %}
+
+        <div class="filter-result-count">{{ datasets|length }} résultat(s)</div>
+        <hr class="filter-divider">
+
+        <a
+          class="btn btn-primary"
+          href="{% url 'dashboard:dataset_create' %}"
+          style="display:flex; width:100%; margin-bottom:12px; justify-content:center;"
+        >
+          + Créer un dataset
+        </a>
+
+        {# Country filter #}
+        {% if countries %}
+          <div class="filter-section">
+            <span class="filter-section-label">Pays</span>
+
+            <label class="filter-check {% if not filters.country %}active{% endif %}">
+              <input
+                type="radio"
+                name="country"
+                value=""
+                {% if not filters.country %}checked{% endif %}
+                onchange="document.getElementById('filter-form').submit()"
+              >
+              <span>Tous</span>
+            </label>
+
+            {% for item in countries %}
+              <label class="filter-check {% if filters.country == item %}active{% endif %}">
+                <input
+                  type="radio"
+                  name="country"
+                  value="{{ item }}"
+                  {% if filters.country == item %}checked{% endif %}
+                  onchange="document.getElementById('filter-form').submit()"
+                >
+                <span>{{ item }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <hr class="filter-divider">
+        {% endif %}
+
+        {# Status filter #}
+        {% if statuses %}
+          <div class="filter-section">
+            <span class="filter-section-label">Statut</span>
+
+            <label class="filter-check {% if not filters.status %}active{% endif %}">
+              <input
+                type="radio"
+                name="status"
+                value=""
+                {% if not filters.status %}checked{% endif %}
+                onchange="document.getElementById('filter-form').submit()"
+              >
+              <span>Tous</span>
+            </label>
+
+            {% for item in statuses %}
+              <label class="filter-check {% if filters.status == item %}active{% endif %}">
+                <input
+                  type="radio"
+                  name="status"
+                  value="{{ item }}"
+                  {% if filters.status == item %}checked{% endif %}
+                  onchange="document.getElementById('filter-form').submit()"
+                >
+                <span>
+                  {% if item == "published" %}Publié
+                  {% elif item == "success" %}Succès
+                  {% elif item == "draft" %}Brouillon
+                  {% elif item == "archived" %}Archivé
+                  {% else %}{{ item }}{% endif %}
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          <hr class="filter-divider">
+        {% endif %}
+
+        {% if filters.q or filters.country or filters.status %}
+          <a href="{% url 'dashboard:dataset_list' %}" class="filter-clear-link">
+            ✕ Réinitialiser les filtres
+          </a>
+        {% endif %}
+
+        <button type="submit" class="btn btn-soft" style="width:100%; margin-top:10px;">
+          Appliquer
+        </button>
+      </form>
+    </aside>
+
+    {# ── Card Grid ───────────────────────────────────── #}
+    <div class="catalogue-content">
+
+      {% if datasets %}
+        <div class="catalogue-card-grid">
+          {% for dataset in datasets %}
+            <article class="ods-card">
+              <div class="ods-card-body">
+                <div class="ods-card-status">
+                  {% with status=dataset.last_publish_status|default:"published" %}
+                    {% if status == "published" %}
+                      <span class="status-badge success">Publié</span>
+                    {% elif status == "success" %}
+                      <span class="status-badge success">Succès</span>
+                    {% elif status == "draft" %}
+                      <span class="status-badge muted">Brouillon</span>
+                    {% elif status == "archived" %}
+                      <span class="status-badge warning">Archivé</span>
+                    {% else %}
+                      <span class="status-badge success">{{ status }}</span>
+                    {% endif %}
+                  {% endwith %}
+
+                  <span class="soft-pill" style="margin-left:5px;">v{{ dataset.latest_version }}</span>
+                </div>
+
+                <h3 class="ods-card-title">
+                  <a href="{% url 'dashboard:dataset_detail' dataset.slug %}">
+                    {{ dataset.title }}
+                  </a>
+                </h3>
+
+                <p class="ods-card-description">
+                  {{ dataset.description|default:"Aucune description disponible."|truncatechars:180 }}
+                </p>
+              </div>
+
+              <div class="ods-card-footer">
+                <div class="ods-card-chips">
+                  {% if dataset.country.name %}
+                    <span class="ods-chip">{{ dataset.country.name }}</span>
+                  {% endif %}
+                  <span class="ods-chip">{{ dataset.slug }}</span>
+                </div>
+
+                <div class="ods-card-meta">
+                  {{ dataset.published_at|slice:":10" }}
+                </div>
+              </div>
+
+              <div class="ods-card-footer" style="border-top:0; padding-top:0;">
+                <a class="btn btn-soft btn-sm" href="{% url 'dashboard:dataset_detail' dataset.slug %}">
+                  Voir détail
+                </a>
+
+                <form
+                  method="post"
+                  style="display:inline;"
+                  onsubmit="return confirm('Supprimer ce dataset de Hugging Face et du miroir local ? Cette action est irréversible.');"
+                >
+                  {% csrf_token %}
+                  <input type="hidden" name="slug" value="{{ dataset.slug }}">
+                  <button class="btn btn-danger btn-sm" type="submit" name="action" value="delete">
+                    Supprimer
+                  </button>
+                </form>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+
+      {% else %}
+        <div class="empty-state">
+          <strong>Aucun dataset trouvé</strong>
+          <p>Ajustez les filtres, synchronisez avec Hugging Face ou créez une nouvelle publication.</p>
+
+          <div class="d-flex gap-2 flex-wrap justify-content-center">
+            <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">
+              Créer un dataset
+            </a>
+
+            <form method="post">
+              {% csrf_token %}
+              <button class="btn btn-soft" type="submit" name="action" value="sync_hf">
+                Synchroniser avec Hugging Face
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+{% endblock %}

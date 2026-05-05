@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+
+{% block title %}{% if detail %}{{ detail.title }}{% else %}Dataset{% endif %} | Richat DataBridge{% endblock %}
+{% block page_title %}Fiche dataset{% endblock %}
+
+{% block content %}
+  {% if backend_error %}
+    <div class="alert alert-warning app-alert">{{ backend_error }}</div>
+  {% endif %}
+
+  {% if detail %}
+
+    {# ── Title / Hero ─────────────────────────────────── #}
+    <section class="detail-hero">
+      <div style="flex:1; min-width:0;">
+        <span class="eyebrow">Fiche publication</span>
+        <h2>{{ detail.title }}</h2>
+        <p>{{ detail.description }}</p>
+
+        <div class="chip-row" style="margin-top:14px; gap:6px;">
+          <span class="chip-labeled">
+            <span class="chip-key">Slug</span>
+            {{ detail.slug }}
+          </span>
+          <span class="chip-labeled">
+            <span class="chip-key">Dépôt</span>
+            {% if detail.remote_provider == "huggingface" %}Hugging Face
+            {% else %}{{ detail.remote_provider }}{% endif %}
+          </span>
+          <span class="chip-labeled">
+            <span class="chip-key">Statut</span>
+            {% if detail.status == "published" %}Publié
+            {% elif detail.status == "draft" %}Brouillon
+            {% elif detail.status == "archived" %}Archivé
+            {% else %}{{ detail.status }}{% endif %}
+          </span>
+          <span class="chip-labeled">
+            <span class="chip-key">Version</span>
+            v{{ detail.latest_version }}
+          </span>
+          <span class="chip-labeled">
+            <span class="chip-key">Visibilité</span>
+            {% if detail.visibility == "public" %}Public
+            {% elif detail.visibility == "private" %}Privé
+            {% else %}{{ detail.visibility }}{% endif %}
+          </span>
+        </div>
+      </div>
+
+      <div class="hero-actions">
+        {% if detail.remote_url %}
+          <a class="btn btn-soft" href="{{ detail.remote_url }}" target="_blank" rel="noopener">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
+              <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
+            </svg>
+            Dépôt distant
+          </a>
+        {% endif %}
+        {% if data_url %}
+          <a class="btn btn-outline-primary" href="{{ data_url }}" target="_blank" rel="noopener">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-9.707a1 1 0 011.414 0L9 8.586V3a1 1 0 112 0v5.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+            </svg>
+            CSV
+          </a>
+        {% endif %}
+        <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}?mode=version&existing_slug={{ detail.slug }}">
+          + Nouvelle version
+        </a>
+      </div>
+    </section>
+
+    {# ── Metadata row ─────────────────────────────────── #}
+    <section class="metric-grid detail-metrics">
+      <article class="metric-card accent-blue">
+        <span>Dernière version</span>
+        <strong>v{{ detail.latest_version }}</strong>
+        <small>{{ selected_version.remote_version }}</small>
+      </article>
+      <article class="metric-card accent-teal">
+        <span>Pays</span>
+        <strong>{{ selected_version.country.name }}</strong>
+        <small>{{ selected_version.country.code_iso3 }}</small>
+      </article>
+      <article class="metric-card accent-green">
+        <span>Période</span>
+        <strong>{{ selected_version.start_date|slice:":4" }} – {{ selected_version.end_date|slice:":4" }}</strong>
+        <small>
+          {% if selected_version.frequency == "annual" %}Annuelle
+          {% elif selected_version.frequency == "quarterly" %}Trimestrielle
+          {% elif selected_version.frequency == "monthly" %}Mensuelle
+          {% else %}{{ selected_version.frequency }}{% endif %}
+        </small>
+      </article>
+      <article class="metric-card accent-indigo">
+        <span>Indicateurs</span>
+        <strong>{{ selected_version.indicators|length }}</strong>
+        <small>Variables publiées</small>
+      </article>
+    </section>
+
+    {# ── Version Switcher ─────────────────────────────── #}
+    <section class="panel">
+      <div class="version-switcher">
+        <div>
+          <span class="eyebrow">Historique</span>
+          <h3>Versions disponibles</h3>
+        </div>
+        <div class="version-pills">
+          {% for version in versions %}
+            <a class="version-pill {% if selected_version.version == version.version %}active{% endif %}"
+               href="?version={{ version.version }}">
+              {{ version.remote_version }}
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    {# ── Tabs ─────────────────────────────────────────── #}
+    <section class="panel">
+      <ul class="nav nav-tabs app-tabs" id="datasetTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">
+            Vue d'ensemble
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="preview-tab" data-bs-toggle="tab" data-bs-target="#preview" type="button" role="tab">
+            Aperçu des données
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="versions-tab" data-bs-toggle="tab" data-bs-target="#versions" type="button" role="tab">
+            Versions
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="manifest-tab" data-bs-toggle="tab" data-bs-target="#manifest" type="button" role="tab">
+            Manifeste
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="indicators-tab" data-bs-toggle="tab" data-bs-target="#indicators" type="button" role="tab">
+            Indicateurs
+          </button>
+        </li>
+      </ul>
+
+      <div class="tab-content app-tab-content">
+
+        {# Overview #}
+        <div class="tab-pane fade show active" id="overview" role="tabpanel">
+          <div class="info-grid">
+            <div class="info-row">
+              <span>Identifiant distant</span>
+              <strong>{{ detail.remote_id }}</strong>
+            </div>
+            <div class="info-row">
+              <span>Visibilité</span>
+              <strong>
+                {% if detail.visibility == "public" %}Public
+                {% elif detail.visibility == "private" %}Privé
+                {% else %}{{ detail.visibility }}{% endif %}
+              </strong>
+            </div>
+            <div class="info-row">
+              <span>Format</span>
+              <strong>{{ selected_version.format|upper }}</strong>
+            </div>
+            <div class="info-row">
+              <span>Publié le</span>
+              <strong>{{ selected_version.published_at|slice:":16" }}</strong>
+            </div>
+            <div class="info-row">
+              <span>Début de période</span>
+              <strong>{{ selected_version.start_date }}</strong>
+            </div>
+            <div class="info-row">
+              <span>Fin de période</span>
+              <strong>{{ selected_version.end_date }}</strong>
+            </div>
+          </div>
+        </div>
+
+        {# Preview #}
+        <div class="tab-pane fade" id="preview" role="tabpanel">
+          {% if preview_error %}
+            <div class="alert alert-warning app-alert">{{ preview_error }}</div>
+          {% elif preview_rows %}
+            <div class="table-responsive">
+              <table class="table app-table compact">
+                <thead>
+                  <tr>
+                    {% for column in preview_columns %}
+                      <th>{{ column }}</th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in preview_rows %}
+                    <tr>
+                      {% for value in row %}
+                        <td>{{ value }}</td>
+                      {% endfor %}
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="empty-state compact">
+              <strong>Aucun aperçu disponible</strong>
+              <p>Le fichier CSV distant n'a pas pu être affiché pour cette version.</p>
+            </div>
+          {% endif %}
+        </div>
+
+        {# Versions #}
+        <div class="tab-pane fade" id="versions" role="tabpanel">
+          <div class="version-list">
+            {% for version in versions %}
+              <article class="version-card {% if selected_version.version == version.version %}active{% endif %}">
+                <div>
+                  <strong>{{ version.remote_version }}</strong>
+                  <small>{{ version.country.name }} — {{ version.start_date }} à {{ version.end_date }}</small>
+                </div>
+                <span class="soft-pill">{{ version.indicators|length }} indicateur(s)</span>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# Manifest #}
+        <div class="tab-pane fade" id="manifest" role="tabpanel">
+          <pre class="manifest-box"><code>{{ manifest_json }}</code></pre>
+        </div>
+
+        {# Indicators #}
+        <div class="tab-pane fade" id="indicators" role="tabpanel">
+          {% if selected_version.indicators %}
+            <div class="indicator-card-grid">
+              {% for indicator in selected_version.indicators %}
+                <article class="indicator-card">
+                  <strong>{{ indicator.code }}</strong>
+                  <span>{{ indicator.name }}</span>
+                  <small>
+                    {% if indicator.unit %}{{ indicator.unit }}
+                    {% else %}Unité non précisée{% endif %}
+                  </small>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state compact">
+              <strong>Aucun indicateur associé</strong>
+              <p>Cette version ne contient pas de sélection exploitable.</p>
+            </div>
+          {% endif %}
+        </div>
+
+      </div>
+    </section>
+
+  {% else %}
+    <div class="empty-state" style="margin-top:20px;">
+      <strong>Dataset introuvable</strong>
+      <p>Impossible de charger la fiche demandée.</p>
+      <a class="btn btn-primary" href="{% url 'dashboard:dataset_list' %}">Retour au catalogue</a>
+    </div>
+  {% endif %}
+{% endblock %}
