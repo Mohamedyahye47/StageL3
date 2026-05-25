@@ -12,23 +12,23 @@
   <div class="page-intro">
     <div>
       <span class="eyebrow">Vue d'ensemble</span>
-      <h2>Catalogue publié et signaux clés</h2>
-      <p>Suivez les datasets économiques publiés et préparez les prochaines versions.</p>
+      <h2>Catalogue d'exports et signaux clés</h2>
+      <p>Suivez les ressources API générées et les exports générés.</p>
     </div>
-    <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">Créer un dataset</a>
+    <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">Créer un jeu de données</a>
   </div>
 
   {# ── Metric Summary ───────────────────────────────────── #}
   <section class="metric-grid">
     <article class="metric-card accent-blue">
-      <span>Datasets</span>
+      <span>Jeux de données</span>
       <strong>{{ summary.datasets }}</strong>
-      <small>Total publié</small>
+      <small>Total exposé</small>
     </article>
     <article class="metric-card accent-teal">
-      <span>Versions</span>
+      <span>Exports publiés</span>
       <strong>{{ summary.versions }}</strong>
-      <small>Historique cumulé</small>
+      <small>État courant</small>
     </article>
     <article class="metric-card accent-green">
       <span>Pays</span>
@@ -43,32 +43,36 @@
   </section>
 
   {# ── Activity + Rankings ──────────────────────────────── #}
-  <section class="content-grid two-one" style="margin-bottom:16px;">
-    <div class="panel" style="margin-bottom:0;">
+  <section class="content-grid two-one dashboard-activity-grid" style="margin-bottom:16px;">
+    <div class="panel chronology-panel" style="margin-bottom:0;">
       <div class="panel-heading">
         <div>
           <span class="eyebrow">Activité</span>
-          <h3>Chronologie des publications</h3>
+          <h3>Chronologie des exports</h3>
         </div>
       </div>
-      {% if timeline %}
-        <div class="timeline-chart">
-          {% for point in timeline %}
-            <div class="timeline-point" title="{{ point.title }}">
-              <div class="timeline-bar" style="height: {{ point.height }}px"></div>
-              <span>{{ point.label }}</span>
-            </div>
-          {% endfor %}
+      {% if summary.versions > 0 and summary.versions < 5 %}
+        <div class="alert alert-info app-alert compact">
+          Nombre d’exports insuffisant pour produire une visualisation fiable.
+        </div>
+      {% endif %}
+      {% if chronology_chart_url %}
+        <div class="chronology-chart-frame">
+          <img src="{{ chronology_chart_url }}" alt="Chronologie des exports" data-chart-image>
+          <div class="empty-state compact chronology-chart-fallback">
+            <strong>Graphique indisponible</strong>
+            <p>La chronologie sera affichée dès que le serveur pourra générer l'image PNG.</p>
+          </div>
         </div>
       {% else %}
         <div class="empty-state compact">
-          <strong>Aucune publication</strong>
-          <p>La chronologie apparaîtra après la première publication.</p>
+          <strong>Aucun export</strong>
+          <p>La chronologie apparaîtra après la première génération de liens.</p>
         </div>
       {% endif %}
     </div>
 
-    <div class="panel" style="margin-bottom:0;">
+    <div class="panel top-indicators-panel" style="margin-bottom:0;">
       <div class="panel-heading">
         <div>
           <span class="eyebrow">Indicateurs</span>
@@ -91,18 +95,18 @@
       {% else %}
         <div class="empty-state compact">
           <strong>Aucun indicateur</strong>
-          <p>Les usages apparaîtront avec les versions publiées.</p>
+          <p>Les usages apparaîtront avec les exports générés.</p>
         </div>
       {% endif %}
     </div>
   </section>
 
-  {# ── Recent Datasets ──────────────────────────────────── #}
+  {# ── Jeux de données récents ──────────────────────────── #}
   <section class="panel">
     <div class="panel-heading">
       <div>
         <span class="eyebrow">Catalogue</span>
-        <h3>Publications récentes</h3>
+        <h3>Exports récents</h3>
       </div>
       <a class="btn btn-soft" href="{% url 'dashboard:dataset_list' %}">Voir tout →</a>
     </div>
@@ -112,7 +116,7 @@
         {% for dataset in datasets %}
           <article class="dataset-card">
             <div style="flex:1; min-width:0;">
-              <span class="status-badge success">Publié</span>
+              <span class="status-badge success">API d'export</span>
               <h4>{{ dataset.title }}</h4>
               <p>{{ dataset.description|default:""|truncatechars:140 }}</p>
               <div class="chip-row">
@@ -129,9 +133,9 @@
       </div>
     {% else %}
       <div class="empty-state">
-        <strong>Aucun dataset publié</strong>
-        <p>Commencez par créer une publication pour alimenter le catalogue.</p>
-        <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">Créer le premier dataset</a>
+        <strong>Aucun jeu de données exposé</strong>
+        <p>Commencez par générer un lien d'export pour alimenter le catalogue.</p>
+        <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">Créer le premier jeu de données</a>
       </div>
     {% endif %}
   </section>

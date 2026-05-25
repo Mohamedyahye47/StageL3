@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Administrateurs | Richat DataBridge{% endblock %}
+{% block page_title %}Administrateurs{% endblock %}
+
+{% block content %}
+  <section class="page-intro">
+    <div>
+      <span class="eyebrow">Sécurité interne</span>
+      <h2>Gestion des superusers</h2>
+      <p>Chaque administrateur doit disposer de son propre compte afin de préserver l’imputabilité des actions.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Comptes actifs et désactivés</span>
+        <h3>Superusers existants</h3>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>Nom d'utilisateur</th>
+            <th>Email</th>
+            <th>Créé le</th>
+            <th>Dernière connexion</th>
+            <th>Statut</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user_item in users %}
+            <tr>
+              <td><strong>{{ user_item.username }}</strong></td>
+              <td>{{ user_item.email|default:"-" }}</td>
+              <td>{{ user_item.date_joined|date:"Y-m-d H:i" }}</td>
+              <td>{{ user_item.last_login|date:"Y-m-d H:i"|default:"Jamais" }}</td>
+              <td>
+                {% if user_item.is_active %}
+                  <span class="status-badge success">Actif</span>
+                {% else %}
+                  <span class="status-badge neutral">Désactivé</span>
+                {% endif %}
+              </td>
+              <td class="user-actions-cell">
+                {% if user_item.is_active and user_item.id != request.user.id %}
+                  <form method="post" class="inline-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="disable">
+                    <input type="hidden" name="user_id" value="{{ user_item.id }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Désactiver</button>
+                  </form>
+                {% endif %}
+                <details class="password-reset-details">
+                  <summary>Changer le mot de passe</summary>
+                  <form method="post" class="compact-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="reset_password">
+                    <input type="hidden" name="user_id" value="{{ user_item.id }}">
+                    <input class="form-control form-control-sm" type="password" name="password1" placeholder="Nouveau mot de passe" required>
+                    <input class="form-control form-control-sm" type="password" name="password2" placeholder="Confirmation" required>
+                    <button type="submit" class="btn btn-sm btn-primary">Mettre à jour</button>
+                  </form>
+                </details>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6">Aucun superuser trouvé.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Nouveau compte personnel</span>
+        <h3>Créer un superuser</h3>
+      </div>
+    </div>
+    <form method="post" class="form-grid" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="create">
+      {% for field in create_form %}
+        <div>
+          <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}
+            <div class="field-error">{{ field.errors.0 }}</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+      <div class="form-actions-row">
+        <button type="submit" class="btn btn-primary">Créer l’administrateur</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

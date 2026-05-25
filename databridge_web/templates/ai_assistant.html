@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load richat_ui %}
 
 {% block title %}Assistant IA | Richat DataBridge{% endblock %}
 {% block page_title %}Assistant IA{% endblock %}
@@ -6,13 +7,20 @@
 {% block content %}
 <section class="page-intro">
   <div>
-    <span class="eyebrow">Assistant dataset</span>
-    <h2>Transformer une idée d’analyse en proposition de dataset.</h2>
+    <span class="eyebrow">Assistant jeu de données</span>
+    <h2>Transformer une idée d’analyse en proposition de jeu de données.</h2>
     <p>
       Décrivez votre besoin. L’assistant propose une source, un pays, une période,
       un titre, une description et des indicateurs validés par la base de métadonnées.
     </p>
   </div>
+</section>
+
+<section class="panel help-panel compact">
+  <p>
+    L’IA aide à formuler une recommandation. Les indicateurs retenus doivent exister dans le catalogue local,
+    et le serveur reste la source de vérité. Une recommandation IA ne remplace pas l’aperçu réel des données.
+  </p>
 </section>
 
 <section class="panel">
@@ -29,19 +37,54 @@
     >{{ user_request }}</textarea>
 
     <div class="mt-3">
-      <button class="btn btn-primary" type="submit" name="action" value="generate">
+      <button
+        class="btn btn-primary"
+        type="submit"
+        name="action"
+        value="generate"
+        data-assistant-submit="1"
+        data-loading-text="Préparation..."
+      >
         {% if recommendation %}
           Mettre à jour la proposition
         {% else %}
           Proposer une configuration
         {% endif %}
       </button>
+      <button
+        class="btn btn-soft"
+        type="submit"
+        name="action"
+        value="generate_local"
+        data-assistant-submit="1"
+        data-loading-text="Préparation locale..."
+      >
+        Essayer avec le mode local
+      </button>
     </div>
   </form>
 </section>
 
 {% if error %}
-  <div class="alert alert-warning app-alert">{{ error }}</div>
+  <div class="alert alert-warning app-alert">
+    {{ error }}
+    {% if quota_error %}
+      <form method="post" class="mt-3">
+        {% csrf_token %}
+        <input type="hidden" name="user_request" value="{{ user_request }}">
+        <button
+          class="btn btn-soft"
+          type="submit"
+          name="action"
+          value="generate_local"
+          data-assistant-submit="1"
+          data-loading-text="Préparation locale..."
+        >
+          Essayer avec le mode local
+        </button>
+      </form>
+    {% endif %}
+  </div>
 {% endif %}
 
 {% if recommendation %}
@@ -51,10 +94,44 @@
       <span class="eyebrow">Proposition IA</span>
       <h3>{{ recommendation.title }}</h3>
     </div>
-    <span class="soft-pill">Confiance : {{ recommendation.confidence }}</span>
+    <div class="chip-row">
+      <span class="status-badge {{ recommendation.etat_technique|status_badge_class }}">Technique : {{ recommendation.etat_technique|status_label }}</span>
+      <span class="status-badge {{ recommendation.etat_metier|status_badge_class }}">Métier : {{ recommendation.etat_metier|status_label }}</span>
+      <span class="soft-pill">Confiance déclarée : {{ recommendation.confidence }}</span>
+      <span class="soft-pill">Appels IA : {{ recommendation.ai_calls|default:"0" }}</span>
+      {% if recommendation.source_execution == "local_rules" %}
+        <span class="soft-pill">Mode local</span>
+      {% endif %}
+    </div>
   </div>
 
-  <p>{{ recommendation.description }}</p>
+  {% if recommendation.correction_detectee %}
+    <div class="alert alert-info app-alert">
+      {{ recommendation.correction_detectee }}
+    </div>
+  {% endif %}
+
+  <div class="ai-copy-layout">
+    <article class="export-link-card">
+      <div class="export-link-card-head">
+        <div>
+          <span class="eyebrow">Titre proposé</span>
+          <strong>À copier dans la création</strong>
+        </div>
+      </div>
+      <input class="form-control copyable-field" id="ai-title-copy" value="{{ recommendation.title }}" readonly>
+    </article>
+
+    <article class="export-link-card">
+      <div class="export-link-card-head">
+        <div>
+          <span class="eyebrow">Description proposée</span>
+          <strong>Texte validable</strong>
+        </div>
+      </div>
+      <textarea class="form-control copyable-field" id="ai-description-copy" rows="4" readonly>{{ recommendation.description }}</textarea>
+    </article>
+  </div>
 
   <div class="info-grid">
     <div class="info-row">
@@ -74,6 +151,13 @@
       <strong>{{ recommendation.country_name }}</strong>
     </div>
 
+    {% if recommendation.country_code %}
+      <div class="info-row">
+        <span>Code pays</span>
+        <strong>{{ recommendation.country_code }}</strong>
+      </div>
+    {% endif %}
+
     <div class="info-row">
       <span>Période</span>
       <strong>{{ recommendation.start_date }} → {{ recommendation.end_date }}</strong>
@@ -83,13 +167,64 @@
       <span>Indicateurs validés</span>
       <strong>{{ recommendation.indicators|length }}</strong>
     </div>
+
+    <div class="info-row">
+      <span>Intention métier</span>
+      <strong>{{ recommendation.topic_intent|default:"-" }}</strong>
+    </div>
+
+    <div class="info-row">
+      <span>Mode utilisé</span>
+      <strong>{% if recommendation.source_execution == "local_rules" %}Règles locales{% else %}Chaîne IA{% endif %}</strong>
+    </div>
+
+    <div class="info-row">
+      <span>Fournisseur</span>
+      <strong>{{ recommendation.fournisseur_ia|default:"Non disponible" }}</strong>
+    </div>
+
+    <div class="info-row">
+      <span>Modèle</span>
+      <strong>{{ recommendation.modele_ia|default:"Non disponible"|technical_label }}</strong>
+    </div>
+
+    <div class="info-row">
+      <span>Tokens consommés</span>
+      <strong>{{ recommendation.tokens_utilises|default:"Non disponible via l'API locale" }}</strong>
+    </div>
+
+    <div class="info-row">
+      <span>Quota restant</span>
+      <strong>Non disponible via l'API locale</strong>
+    </div>
+
+    {% if recommendation.quota_requetes_atteint %}
+      <div class="info-row">
+        <span>Quota requêtes</span>
+        <strong>Quota IA atteint</strong>
+      </div>
+    {% endif %}
+
+    {% if recommendation.retry_after_seconds %}
+      <div class="info-row">
+        <span>Nouvelle tentative</span>
+        <strong>Dans environ {{ recommendation.retry_after_seconds }} seconde(s)</strong>
+      </div>
+    {% endif %}
   </div>
 
   <div class="mt-3">
     <form method="post">
       {% csrf_token %}
-      <button class="btn btn-primary" type="submit" name="action" value="apply">
-        Utiliser cette proposition dans le builder
+      <button
+        class="btn btn-primary"
+        type="submit"
+        name="action"
+        value="use_in_builder"
+        data-builder-transfer-submit="1"
+        data-loading-text="Ouverture de la création..."
+      >
+        Utiliser cette proposition dans la création
       </button>
     </form>
   </div>

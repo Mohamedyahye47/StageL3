@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration IA | Richat DataBridge{% endblock %}
+{% block page_title %}Configuration IA{% endblock %}
+
+{% block content %}
+  <section class="page-intro">
+    <div>
+      <span class="eyebrow">Pilotage IA</span>
+      <h2>Configuration de la chaîne IA.</h2>
+      <p>
+        Cette page reflète le pipeline réel : normalisation, sélection, évaluation et règles métier locales.
+        Les secrets ne sont jamais affichés.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel help-panel">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Principe de sécurité</span>
+        <h3>Le serveur reste la source de vérité</h3>
+        <p>
+          L’IA assiste la sélection, mais les règles métier et la base locale valident le résultat.
+          Les indicateurs doivent exister dans le catalogue local avant d’être proposés.
+        </p>
+      </div>
+    </div>
+    <div class="definition-grid">
+      <p><strong>Normalisation</strong> : transforme une phrase utilisateur en intention structurée.</p>
+      <p><strong>Sélection</strong> : choisit uniquement parmi les candidats locaux préparés par le serveur.</p>
+      <p><strong>Évaluation</strong> : explique les risques et la cohérence, sans décider seule.</p>
+      <p><strong>Règles locales</strong> : valident source, pays, thème, indicateurs et limites.</p>
+    </div>
+  </section>
+
+  {% if has_session_overrides %}
+    <div class="alert alert-info app-alert">
+      Des paramètres sont enregistrés pour cette session. Ils ne modifient pas les variables d’environnement du backend.
+    </div>
+  {% endif %}
+
+  {% if runtime_error %}
+    <div class="alert alert-warning app-alert">
+      Configuration runtime indisponible : {{ runtime_error }}
+    </div>
+  {% elif runtime_config %}
+    <div class="alert alert-info app-alert">
+      Configuration appliquée en mémoire côté FastAPI. Elle reste active jusqu’au redémarrage du serveur backend.
+    </div>
+  {% endif %}
+
+  <form method="post" class="parameter-board" novalidate data-ai-model-options="{{ ai_model_options_json|default:'{}'|escape }}">
+    {% csrf_token %}
+
+    {% for group in groups %}
+      <section class="panel parameter-section">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">{{ group.eyebrow|default:"Configuration" }}</span>
+            <h3>{{ group.title }}</h3>
+            <p>{{ group.description }}</p>
+          </div>
+        </div>
+
+        <div class="parameter-grid">
+          {% for field in group.fields %}
+            <label class="parameter-field {% if field.type == 'boolean' %}toggle-field{% endif %}">
+              <span class="parameter-label">{{ field.label }}</span>
+              <small>{{ field.effective_env|default:field.name }}</small>
+
+              {% if field.type == "range" %}
+                <div class="range-row">
+                  <input
+                    type="range"
+                    name="{{ field.name }}"
+                    value="{{ field.value|default:field.min }}"
+                    min="{{ field.min }}"
+                    max="{{ field.max }}"
+                    step="{{ field.step }}"
+                    data-range-output="#out-{{ field.name }}"
+                  >
+                  <output id="out-{{ field.name }}">{{ field.value|default:field.min }}</output>
+                </div>
+              {% elif field.type == "select" %}
+                <select
+                  class="form-select"
+                  name="{{ field.name }}"
+                  {% if field.layer %}data-ai-layer="{{ field.layer }}"{% endif %}
+                  {% if field.name|slice:"-9:" == "_PROVIDER" %}data-ai-provider-select{% endif %}
+                  {% if field.name|slice:"-6:" == "_MODEL" %}data-ai-model-select{% endif %}
+                >
+                  {% for option in field.options %}
+                    <option value="{{ option.value }}" {% if option.value == field.value %}selected{% endif %} {% if option.disabled %}disabled{% endif %}>
+                      {{ option.label }}
+                    </option>
+                  {% endfor %}
+                </select>
+                {% if not field.options and field.layer %}
+                  <span class="field-error">Aucun fournisseur disponible pour cette couche.</span>
+                {% endif %}
+              {% elif field.type == "boolean" %}
+                <span class="switch-control">
+                  <input type="checkbox" name="{{ field.name }}" {% if field.checked %}checked{% endif %}>
+                  <span></span>
+                </span>
+              {% else %}
+                <input class="form-control" type="text" name="{{ field.name }}" value="{{ field.value }}">
+              {% endif %}
+
+              {% if field.error %}
+                <span class="field-error">{{ field.error }}</span>
+              {% endif %}
+            </label>
+          {% endfor %}
+        </div>
+        {% if group.disabled_providers %}
+          <div class="provider-disabled-list">
+            {% for provider in group.disabled_providers %}
+              <span class="soft-pill">{{ provider.label }} : {{ provider.disabled_reason }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+    {% endfor %}
+
+    <section class="publish-panel parameter-actions">
+      <div>
+        <span class="eyebrow">Session courante</span>
+        <h3>Enregistrer la configuration affichée</h3>
+        <p>
+          Ces paramètres sont appliqués en mémoire côté FastAPI pour la session de démonstration.
+          Pour une modification permanente après redémarrage, contactez l’administrateur système.
+        </p>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-soft btn-lg" type="submit" name="action" value="reset">Réinitialiser</button>
+        <button class="btn btn-primary btn-lg" type="submit" name="action" value="save">Enregistrer</button>
+      </div>
+    </section>
+  </form>
+{% endblock %}

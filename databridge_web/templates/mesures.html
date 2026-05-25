@@ -1,0 +1,386 @@
+{% extends "base.html" %}
+{% load richat_ui %}
+
+{% block title %}Mesures | Richat DataBridge{% endblock %}
+{% block page_title %}Mesures{% endblock %}
+
+{% block content %}
+  <section class="page-intro">
+    <div>
+      <span class="eyebrow">Suivi réel</span>
+      <h2>Mesures réelles du pipeline.</h2>
+      <p>
+        Ces mesures proviennent des exécutions enregistrées. Les moyennes basées sur moins de 5 mesures sont indicatives.
+      </p>
+    </div>
+  </section>
+
+  <div class="alert alert-info app-alert">
+    Données de pilotage issues des exécutions enregistrées.
+  </div>
+
+  <section class="metric-grid mesures-summary">
+    <article class="metric-card">
+      <span>Durée moyenne : aperçu jeu de données</span>
+      <strong>{{ resume_apercus.moyenne }}</strong>
+      <small>{{ resume_apercus.nombre }} mesure(s), min {{ resume_apercus.minimum }}, max {{ resume_apercus.maximum }}{% if resume_apercus.qualite %} · {{ resume_apercus.qualite }}{% endif %}</small>
+    </article>
+    <article class="metric-card">
+      <span>Durée moyenne : Génération liens</span>
+      <strong>{{ resume_generation_liens.moyenne }}</strong>
+      <small>{{ resume_generation_liens.nombre }} mesure(s), min {{ resume_generation_liens.minimum }}, max {{ resume_generation_liens.maximum }}{% if resume_generation_liens.qualite %} · {{ resume_generation_liens.qualite }}{% endif %}</small>
+    </article>
+    <article class="metric-card">
+      <span>Durée moyenne : Assistant IA local</span>
+      <strong>{{ resume_ia_local.moyenne }}</strong>
+      <small>{{ resume_ia_local.nombre }} mesure(s), min {{ resume_ia_local.minimum }}, max {{ resume_ia_local.maximum }}{% if resume_ia_local.qualite %} · {{ resume_ia_local.qualite }}{% endif %}</small>
+    </article>
+    <article class="metric-card">
+      <span>Durée moyenne : Assistant IA externe</span>
+      <strong>{{ resume_ia_normal.moyenne }}</strong>
+      <small>{{ resume_ia_normal.nombre }} mesure(s), min {{ resume_ia_normal.minimum }}, max {{ resume_ia_normal.maximum }}{% if resume_ia_normal.qualite %} · {{ resume_ia_normal.qualite }}{% endif %}</small>
+    </article>
+    <article class="metric-card">
+      <span>Dernière synchronisation Banque mondiale</span>
+      <strong>{{ mesures_sync_reelles.0.date|slice:":19"|default:"Aucune" }}</strong>
+      <small>{{ resume_sync_reelles.nombre }} synchronisation(s) réelle(s)</small>
+    </article>
+  </section>
+
+  <section class="panel measure-card-panel" data-measure-card="premier-lancement">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Base</span>
+        <h3>Mesures de premier lancement complet</h3>
+      </div>
+    </div>
+    {% if mesures_premier_lancement %}
+      <div class="table-responsive">
+        <table class="table app-table compact">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Thèmes</th>
+              <th>Pays</th>
+              <th>Indicateurs</th>
+              <th>Appels HTTP</th>
+              <th>Durée totale</th>
+              <th>État</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in mesures_premier_lancement %}
+              <tr>
+                <td>{{ row.date|slice:":19" }}</td>
+                <td><strong>{{ row.type_affiche }}</strong></td>
+                <td>{{ row.nombre_themes|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_pays|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_indicateurs|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_appels_http|default_if_none:"-" }}</td>
+                <td>{{ row.duree_totale_secondes|default_if_none:"-" }} s</td>
+                <td><span class="status-badge {{ row.etat|status_badge_class }}">{{ row.etat|default_if_none:"-"|status_label }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if page_premier_lancement.paginator.num_pages > 1 %}
+        <nav class="app-pagination compact" aria-label="Pagination premier lancement">
+          {% if page_premier_lancement.has_previous %}<a href="?page_base={{ page_premier_lancement.previous_page_number }}">Précédent</a>{% else %}<span class="disabled">Précédent</span>{% endif %}
+          <span class="active">{{ page_premier_lancement.number }}</span>
+          {% if page_premier_lancement.has_next %}<a href="?page_base={{ page_premier_lancement.next_page_number }}">Suivant</a>{% else %}<span class="disabled">Suivant</span>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <div class="empty-state compact">
+        <strong>Aucune mesure enregistrée</strong>
+        <p>Aucune mesure disponible pour cette section.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel measure-card-panel" data-measure-card="sync-reelles">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Banque mondiale</span>
+        <h3>Synchronisations réelles avec appels HTTP</h3>
+      </div>
+    </div>
+    {% if mesures_sync_reelles %}
+      <div class="table-responsive">
+        <table class="table app-table compact">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Thèmes</th>
+              <th>Pays</th>
+              <th>Indicateurs</th>
+              <th>Appels HTTP</th>
+              <th>Durée totale</th>
+              <th>État</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in mesures_sync_reelles %}
+              <tr>
+                <td>{{ row.date|slice:":19" }}</td>
+                <td>{{ row.nombre_themes|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_pays|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_indicateurs|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_appels_http|default_if_none:"-" }}</td>
+                <td>{{ row.duree_totale_secondes|default_if_none:"-" }} s</td>
+                <td><span class="status-badge {{ row.etat|status_badge_class }}">{{ row.etat|default_if_none:"-"|status_label }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if page_sync_reelles.paginator.num_pages > 1 %}
+        <nav class="app-pagination compact" aria-label="Pagination synchronisations réelles">
+          {% if page_sync_reelles.has_previous %}<a href="?page_sync={{ page_sync_reelles.previous_page_number }}">Précédent</a>{% else %}<span class="disabled">Précédent</span>{% endif %}
+          <span class="active">{{ page_sync_reelles.number }}</span>
+          {% if page_sync_reelles.has_next %}<a href="?page_sync={{ page_sync_reelles.next_page_number }}">Suivant</a>{% else %}<span class="disabled">Suivant</span>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <div class="empty-state compact">
+        <strong>Aucune synchronisation réelle enregistrée</strong>
+        <p>Aucune mesure disponible pour cette section.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel measure-card-panel" data-measure-card="sync-ignorees">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Base déjà remplie</span>
+        <h3>Synchronisations sans appels HTTP enregistrés</h3>
+      </div>
+    </div>
+    {% if mesures_sync_ignorees %}
+      <div class="table-responsive">
+        <table class="table app-table compact">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Thèmes</th>
+              <th>Pays</th>
+              <th>Indicateurs</th>
+              <th>Durée totale</th>
+              <th>État</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in mesures_sync_ignorees %}
+              <tr>
+                <td>{{ row.date|slice:":19" }}</td>
+                <td>{{ row.nombre_themes|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_pays|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_indicateurs|default_if_none:"-" }}</td>
+                <td>{{ row.duree_totale_secondes|default_if_none:"-" }} s</td>
+                <td><span class="status-badge {{ row.etat|status_badge_class }}">{{ row.etat|default_if_none:"-"|status_label }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if page_sync_ignorees.paginator.num_pages > 1 %}
+        <nav class="app-pagination compact" aria-label="Pagination mesures courtes">
+          {% if page_sync_ignorees.has_previous %}<a href="?page_courtes={{ page_sync_ignorees.previous_page_number }}">Précédent</a>{% else %}<span class="disabled">Précédent</span>{% endif %}
+          <span class="active">{{ page_sync_ignorees.number }}</span>
+          {% if page_sync_ignorees.has_next %}<a href="?page_courtes={{ page_sync_ignorees.next_page_number }}">Suivant</a>{% else %}<span class="disabled">Suivant</span>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <div class="empty-state compact">
+        <strong>Aucune mesure courte enregistrée</strong>
+        <p>Aucune mesure disponible pour cette section.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel measure-card-panel" data-measure-card="datasets">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Jeux de données</span>
+        <h3>Mesures de génération des jeux de données</h3>
+      </div>
+    </div>
+    {% if mesures_datasets %}
+      <div class="table-responsive">
+        <table class="table app-table compact">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Pays</th>
+              <th>Indicateurs</th>
+              <th>Période</th>
+              <th>Lignes</th>
+              <th>Valeurs non nulles</th>
+              <th>Durée totale</th>
+              <th>Moyenne par indicateur</th>
+              <th>Étapes</th>
+              <th>État</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in mesures_datasets %}
+              <tr>
+                <td>{{ row.date|slice:":19" }}</td>
+                <td><strong>{{ row.type_affiche }}</strong></td>
+                <td>{{ row.pays|default:"-" }}</td>
+                <td>{{ row.nombre_indicateurs|default_if_none:"-" }}</td>
+                <td>{{ row.annee_debut|default_if_none:"-" }} - {{ row.annee_fin|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_lignes|default_if_none:"-" }}</td>
+                <td>{{ row.valeurs_non_nulles|default_if_none:"-" }}</td>
+                <td>{{ row.duree_totale_secondes|default_if_none:"-" }} s</td>
+                <td>{{ row.duree_moyenne_par_indicateur|default_if_none:"-" }} s</td>
+                <td>
+                  {% if row.etapes %}
+                    <details class="measure-details">
+                      <summary>Voir</summary>
+                      {% for key, value in row.etapes.items %}
+                        <span>{{ key }} : {{ value }} s</span>
+                      {% endfor %}
+                      {% if row.duree_creation_csv_secondes %}<span>CSV : {{ row.duree_creation_csv_secondes }} s</span>{% endif %}
+                      {% if row.duree_creation_json_secondes %}<span>JSON : {{ row.duree_creation_json_secondes }} s</span>{% endif %}
+                    </details>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td><span class="status-badge {{ row.etat|status_badge_class }}">{{ row.etat|default:"-"|status_label }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if page_mesures_datasets.paginator.num_pages > 1 %}
+        <nav class="app-pagination compact" aria-label="Pagination jeux de données">
+          {% if page_mesures_datasets.has_previous %}<a href="?page_jeux={{ page_mesures_datasets.previous_page_number }}">Précédent</a>{% else %}<span class="disabled">Précédent</span>{% endif %}
+          <span class="active">{{ page_mesures_datasets.number }}</span>
+          {% if page_mesures_datasets.has_next %}<a href="?page_jeux={{ page_mesures_datasets.next_page_number }}">Suivant</a>{% else %}<span class="disabled">Suivant</span>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <div class="empty-state compact">
+        <strong>Aucune mesure de jeu de données</strong>
+        <p>Aucune mesure disponible pour cette section.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel measure-card-panel" data-measure-card="grandes-requetes">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Grandes requêtes</span>
+        <h3>Résumé des grandes requêtes</h3>
+      </div>
+    </div>
+    {% if grandes_requetes %}
+      <div class="table-responsive">
+        <table class="table app-table compact">
+          <thead>
+            <tr>
+              <th>Indicateurs</th>
+              <th>Années</th>
+              <th>Lignes théoriques</th>
+              <th>Lignes réelles</th>
+              <th>Durée totale</th>
+              <th>Moyenne par indicateur</th>
+              <th>Pays</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in grandes_requetes %}
+              <tr>
+                <td><strong>{{ row.nombre_indicateurs|default_if_none:"-" }}</strong></td>
+                <td>{{ row.annee_debut|default_if_none:"-" }} - {{ row.annee_fin|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_lignes_theorique|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_lignes|default_if_none:"-" }}</td>
+                <td>{{ row.duree_totale_secondes|default_if_none:"-" }} s</td>
+                <td>{{ row.duree_moyenne_par_indicateur|default_if_none:"-" }} s</td>
+                <td>{{ row.pays|default:"-" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if page_grandes_requetes.paginator.num_pages > 1 %}
+        <nav class="app-pagination compact" aria-label="Pagination grandes requêtes">
+          {% if page_grandes_requetes.has_previous %}<a href="?page_grandes={{ page_grandes_requetes.previous_page_number }}">Précédent</a>{% else %}<span class="disabled">Précédent</span>{% endif %}
+          <span class="active">{{ page_grandes_requetes.number }}</span>
+          {% if page_grandes_requetes.has_next %}<a href="?page_grandes={{ page_grandes_requetes.next_page_number }}">Suivant</a>{% else %}<span class="disabled">Suivant</span>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <div class="empty-state compact">
+        <strong>Aucune grande requête mesurée</strong>
+        <p>Aucune mesure disponible pour cette section.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel measure-card-panel" data-measure-card="assistant-ia">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Assistant IA</span>
+        <h3>Mesures de l'assistant IA</h3>
+      </div>
+    </div>
+    {% if mesures_ia %}
+      <div class="table-responsive">
+        <table class="table app-table compact">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Fournisseur</th>
+              <th>Modèle</th>
+              <th>Appels IA</th>
+              <th>Candidats envoyés</th>
+              <th>Candidats</th>
+              <th>Indicateurs sélectionnés</th>
+              <th>Indicateurs validés</th>
+              <th>État technique</th>
+              <th>État métier</th>
+              <th>Évaluateur</th>
+              <th>Durée totale</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in mesures_ia %}
+              <tr>
+                <td>{{ row.date|slice:":19" }}</td>
+                <td>{{ row.fournisseur|default:"-" }}</td>
+                <td><strong>{{ row.modele|default:"-"|technical_label }}</strong></td>
+                <td>{{ row.nombre_appels_ia|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_candidats_envoyes|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_candidats|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_indicateurs_selectionnes|default_if_none:"-" }}</td>
+                <td>{{ row.nombre_indicateurs_valides|default_if_none:"-" }}</td>
+                <td><span class="status-badge {{ row.etat_technique|status_badge_class }}">{{ row.etat_technique|default:"-"|status_label }}</span></td>
+                <td><span class="status-badge {{ row.etat_metier|status_badge_class }}">{{ row.etat_metier|default:"-"|status_label }}</span></td>
+                <td><span class="status-badge {{ row.decision_evaluateur|status_badge_class }}">{{ row.decision_evaluateur|default:"-"|status_label }}</span></td>
+                <td>{{ row.duree_totale_secondes|default_if_none:"-" }} s</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if page_mesures_ia.paginator.num_pages > 1 %}
+        <nav class="app-pagination compact" aria-label="Pagination assistant IA">
+          {% if page_mesures_ia.has_previous %}<a href="?page_ia={{ page_mesures_ia.previous_page_number }}">Précédent</a>{% else %}<span class="disabled">Précédent</span>{% endif %}
+          <span class="active">{{ page_mesures_ia.number }}</span>
+          {% if page_mesures_ia.has_next %}<a href="?page_ia={{ page_mesures_ia.next_page_number }}">Suivant</a>{% else %}<span class="disabled">Suivant</span>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <div class="empty-state compact">
+        <strong>Aucune mesure IA</strong>
+        <p>Aucune mesure disponible pour cette section.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

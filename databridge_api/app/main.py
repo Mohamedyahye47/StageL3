@@ -16,19 +16,22 @@ for path in (API_ROOT, PROJECT_ROOT):
 from core import db as core_db
 
 from app.api import api_router
-from app.config import API_TITLE
-from app.database import Base, engine
+from app.config import API_TITLE, CORS_ALLOWED_ORIGINS, IS_PRODUCTION
 
-# Import all models so SQLAlchemy registers them with Base.metadata before create_all
-import app.models  # noqa: F401
+
+def _resolve_cors_origins() -> list[str]:
+    if CORS_ALLOWED_ORIGINS:
+        return CORS_ALLOWED_ORIGINS
+    if IS_PRODUCTION:
+        raise RuntimeError("CORS_ALLOWED_ORIGINS est obligatoire en production.")
+    return ["http://127.0.0.1:8000", "http://localhost:8000"]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize core metadata tables and create any missing publication tables.
+    # Initialize core metadata tables and create any missing export tables.
     core_db.init_db()
     core_db.seed_metadata(force=False)
-    Base.metadata.create_all(bind=engine)
     yield
 
 
@@ -36,9 +39,9 @@ app = FastAPI(
     title=API_TITLE,
     description=(
         "API metadata-only de Richat DataBridge. "
-        "La creation de dataset reste ephemere jusqu'a la publication. "
-        "Apres succes de publication vers Hugging Face, le miroir SQLite local est mis a jour. "
-        "Les valeurs publiees restent dans les fichiers distants, le miroir SQLite conserve les metadonnees."
+        "La creation de dataset reste ephemere jusqu'a la generation des liens d'export. "
+        "Le backend expose des endpoints CSV/JSON stables consommables par Richat Opendatasoft. "
+        "Le workflow actif repose uniquement sur l'API d'export Opendatasoft."
     ),
     version="2.0.0",
     lifespan=lifespan,
@@ -46,10 +49,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_resolve_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
 
 app.include_router(api_router)

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Créer un dataset | Richat DataBridge{% endblock %}
-{% block page_title %}Créer un dataset{% endblock %}
+{% block title %}Créer un jeu de données | Richat DataBridge{% endblock %}
+{% block page_title %}Créer un jeu de données{% endblock %}
 
 {% block content %}
   {% if backend_error %}
@@ -10,23 +10,30 @@
 
   <section class="page-intro">
     <div>
-      <span class="eyebrow">Builder</span>
-      <h2>Préparer une publication structurée et vérifiable.</h2>
-      <p>Suivez les étapes, contrôlez la sélection, puis publiez vers le dépôt distant.</p>
+      <span class="eyebrow">Création</span>
+      <h2>Préparer une ressource API claire et vérifiable.</h2>
+      <p>Suivez les étapes, contrôlez la sélection, puis générez les liens CSV/JSON pour Opendatasoft.</p>
     </div>
   </section>
 
-  {% if ai_recommendation %}
+  <section class="panel help-panel compact">
+    <p>
+      Choisissez une source, un thème, un pays et au moins un indicateur. Lancez l’aperçu avant de générer les liens.
+      La Banque mondiale accepte au maximum 60 indicateurs par jeu de données. L’assistant IA peut proposer, mais le serveur valide.
+    </p>
+  </section>
+
+  {% if builder_prefill_applied %}
     <section class="panel">
       <div class="panel-heading">
         <div>
           <span class="eyebrow">Préremplissage IA</span>
-          <h3>Proposition appliquée au builder</h3>
+          <h3>Proposition appliquée à la création</h3>
         </div>
-        <span class="soft-pill">Confiance : {{ ai_recommendation.confidence }}</span>
+        <span class="soft-pill">À vérifier avant export</span>
       </div>
       <p>
-        Les champs ci-dessous ont été préremplis par l’assistant IA. Vérifiez tout avant publication.
+        Les champs ci-dessous ont été préremplis par l’assistant IA. Vérifiez tout avant de générer les liens.
       </p>
     </section>
   {% endif %}
@@ -38,19 +45,23 @@
     data-topics-url="{% url 'dashboard:ajax_topics' %}"
     data-indicators-url="{% url 'dashboard:ajax_indicators' %}"
     data-countries-url="{% url 'dashboard:ajax_countries' %}"
+    data-preview-url="{% url 'dashboard:ajax_dataset_preview' %}"
+    data-preview-ready="{% if preview_ready %}true{% else %}false{% endif %}"
+    data-source-limits='{{ source_limits_json|escape }}'
   >
     {% csrf_token %}
+    <input type="hidden" id="indicator_page" name="indicator_page" value="{{ indicator_pagination.page }}">
 
-    <aside class="builder-stepper">
-      <div class="stepper-item active">
+    <aside class="builder-stepper" data-preview-ready="{% if preview_ready %}true{% else %}false{% endif %}">
+      <div class="stepper-item active complete" data-step="1">
         <span>01</span>
         <div class="stepper-item-content">
           <strong>Mode</strong>
-          <small>Stratégie de publication</small>
+          <small>Stratégie d'export</small>
         </div>
       </div>
 
-      <div class="stepper-item active">
+      <div class="stepper-item active complete" data-step="2">
         <span>02</span>
         <div class="stepper-item-content">
           <strong>Données</strong>
@@ -58,7 +69,7 @@
         </div>
       </div>
 
-      <div class="stepper-item active">
+      <div class="stepper-item active complete" data-step="3">
         <span>03</span>
         <div class="stepper-item-content">
           <strong>Identité</strong>
@@ -66,7 +77,7 @@
         </div>
       </div>
 
-      <div class="stepper-item">
+      <div class="stepper-item {% if preview_ready %}active complete{% endif %}" data-step="4">
         <span>04</span>
         <div class="stepper-item-content">
           <strong>Vérification</strong>
@@ -74,11 +85,11 @@
         </div>
       </div>
 
-      <div class="stepper-item">
+      <div class="stepper-item {% if preview_ready %}active current{% endif %}" data-step="5">
         <span>05</span>
         <div class="stepper-item-content">
-          <strong>Publication</strong>
-          <small>Envoi distant</small>
+          <strong>Export</strong>
+          <small>Liens API</small>
         </div>
       </div>
     </aside>
@@ -87,7 +98,7 @@
 
       {% if form.errors %}
         <div class="alert alert-danger app-alert mb-3">
-          Vérifiez les champs du formulaire avant de publier.
+          Vérifiez les champs du formulaire avant de générer les liens.
         </div>
       {% endif %}
 
@@ -95,27 +106,27 @@
         <div class="section-title">
           <span>01</span>
           <div>
-            <h3>Mode de publication</h3>
-            <p>Choisissez entre un nouveau dataset ou une nouvelle version immuable.</p>
+            <h3>Mode d'export</h3>
+            <p>Choisissez entre un nouveau jeu de données ou la mise à jour d’un export existant.</p>
           </div>
         </div>
 
         <div class="segmented-control" role="radiogroup">
           <label>
             <input type="radio" name="mode" value="new" {% if form_values.mode != "version" %}checked{% endif %}>
-            <span>Nouveau dataset</span>
+            <span>Nouveau jeu de données</span>
           </label>
 
           <label>
             <input type="radio" name="mode" value="version" {% if form_values.mode == "version" %}checked{% endif %}>
-            <span>Nouvelle version</span>
+            <span>Mettre à jour un export</span>
           </label>
         </div>
 
         <div class="mt-3" id="existing-dataset-wrap">
-          <label class="form-label" for="existing_slug">Dataset à versionner</label>
+          <label class="form-label" for="existing_slug">Jeu de données à mettre à jour</label>
           <select class="form-select" id="existing_slug" name="existing_slug">
-            <option value="">Sélectionner un dataset</option>
+            <option value="">Sélectionner un jeu de données</option>
             {% for dataset in datasets %}
               <option value="{{ dataset.slug }}" {% if form_values.existing_slug == dataset.slug %}selected{% endif %}>
                 {{ dataset.title }} — {{ dataset.slug }}
@@ -151,14 +162,17 @@
 
           <div>
             <label class="form-label" for="topic_id">Thème</label>
-            <select class="form-select" id="topic_id" name="topic_id">
-              <option value="">Tous les thèmes</option>
+            <select class="form-select" id="topic_id" name="topic_id" required>
+              <option value="" disabled {% if not form_values.topic_id %}selected{% endif %}>Sélectionner un thème</option>
               {% for topic in topics %}
                 <option value="{{ topic.id }}" {% if form_values.topic_id|stringformat:"s" == topic.id|stringformat:"s" %}selected{% endif %}>
                   {{ topic.name }}
                 </option>
               {% endfor %}
             </select>
+            {% if form.topic_id.errors %}
+              <div class="field-error">{{ form.topic_id.errors.0 }}</div>
+            {% endif %}
           </div>
 
           <div>
@@ -228,8 +242,15 @@
 
             <div class="selection-counter">
               <span id="selected-indicator-count">{{ selected_indicator_ids|length }}</span>
-              sélectionné(s)
+              /
+              <span id="indicator-limit-count">{{ selected_source_limit.max_indicators_per_dataset }}</span>
+              indicateurs sélectionnés
             </div>
+          </div>
+
+          <div class="limit-helper" id="indicator-limit-helper">
+            La source {{ selected_source_limit.label }} autorise au maximum
+            {{ selected_source_limit.max_indicators_per_dataset }} indicateurs par jeu de données.
           </div>
 
           {% if form.indicator_ids.errors %}
@@ -238,10 +259,17 @@
 
           <div class="indicator-list" id="indicator-list">
 
+            {% if not form_values.topic_id and not ai_selected_indicators %}
+              <div class="empty-state compact">
+                <strong>Sélectionnez un thème</strong>
+                <p>Les indicateurs seront affichés après le choix du thème.</p>
+              </div>
+            {% endif %}
+
             {% if ai_selected_indicators %}
               <div class="ai-prefill-box mb-3">
                 <strong>Indicateurs proposés par l’assistant IA</strong>
-                <p>Vous pouvez les garder, les retirer ou ajouter d’autres indicateurs avant publication.</p>
+                <p>Vous pouvez les garder, les retirer ou ajouter d’autres indicateurs avant generation des liens.</p>
 
                 {% for indicator in ai_selected_indicators %}
                   <label class="indicator-option ai-selected">
@@ -289,6 +317,33 @@
               {% endif %}
             {% endfor %}
           </div>
+
+          <div
+            class="indicator-pagination"
+            id="indicator-pagination"
+            data-page="{{ indicator_pagination.page }}"
+            data-page-size="{{ indicator_pagination.page_size }}"
+            data-has-previous="{% if indicator_pagination.has_previous %}true{% else %}false{% endif %}"
+            data-has-next="{% if indicator_pagination.has_next %}true{% else %}false{% endif %}"
+          >
+            <button
+              class="btn btn-soft btn-sm"
+              type="button"
+              data-indicator-page="{{ indicator_pagination.previous_page }}"
+              {% if not indicator_pagination.has_previous %}disabled{% endif %}
+            >
+              Précédent
+            </button>
+            <span>Page {{ indicator_pagination.page }}</span>
+            <button
+              class="btn btn-soft btn-sm"
+              type="button"
+              data-indicator-page="{{ indicator_pagination.next_page }}"
+              {% if not indicator_pagination.has_next %}disabled{% endif %}
+            >
+              Suivant
+            </button>
+          </div>
         </div>
       </section>
 
@@ -296,14 +351,14 @@
         <div class="section-title">
           <span>03</span>
           <div>
-            <h3>Informations du dataset</h3>
+            <h3>Informations du jeu de données</h3>
             <p>Rédigez un titre clair et une description exploitable dans le catalogue.</p>
           </div>
         </div>
 
         <div class="form-grid one-column">
           <div>
-            <label class="form-label" for="title">Titre du dataset</label>
+            <label class="form-label" for="title">Titre du jeu de données</label>
             <input
               class="form-control"
               id="title"
@@ -324,7 +379,7 @@
               id="description"
               name="description"
               rows="5"
-              placeholder="Décrivez le périmètre, le contexte et l'usage du dataset."
+              placeholder="Décrivez le périmètre, le contexte et l'usage du jeu de données."
             >{{ form_values.description }}</textarea>
             {% if form.description.errors %}
               <div class="field-error">{{ form.description.errors.0 }}</div>
@@ -338,7 +393,7 @@
           <span>04</span>
           <div>
             <h3>Vérification</h3>
-            <p>Résumé final de la publication avant l'envoi distant.</p>
+            <p>Résumé final avant la génération des liens d'export.</p>
           </div>
         </div>
 
@@ -346,7 +401,7 @@
           <div class="review-card">
             <span>Mode</span>
             <strong id="review-mode">
-              {% if form_values.mode == "version" %}Nouvelle version{% else %}Nouveau dataset{% endif %}
+              {% if form_values.mode == "version" %}Mise à jour d’export{% else %}Nouveau jeu de données{% endif %}
             </strong>
           </div>
 
@@ -375,8 +430,6 @@
                 <tr>
                   <th>Code</th>
                   <th>Nom</th>
-                  <th>Unité</th>
-                  <th>Périodicité</th>
                 </tr>
               </thead>
               <tbody>
@@ -384,8 +437,6 @@
                   <tr>
                     <td><strong>{{ indicator.code }}</strong></td>
                     <td>{{ indicator.name }}</td>
-                    <td>{{ indicator.unit|default:"—" }}</td>
-                    <td>{{ indicator.periodicity|default:"—" }}</td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -394,12 +445,13 @@
         {% else %}
           <div class="empty-state compact mt-3">
             <strong>Aucun indicateur sélectionné</strong>
-            <p>Ajoutez au moins un indicateur pour publier.</p>
+            <p>Ajoutez au moins un indicateur pour générer les liens.</p>
           </div>
         {% endif %}
       </section>
 
-      <section class="publish-panel">
+      <div class="builder-final-stack">
+        <div id="preview-async-zone" class="preview-async-zone" aria-live="polite">
         {% if preview_error %}
   <div class="alert alert-warning app-alert">
     {{ preview_error }}
@@ -413,7 +465,7 @@
       <div>
         <h3>Aperçu réel des données</h3>
         <p>
-          Données construites depuis la source avant publication.
+          Données construites depuis la source avant génération des liens.
           Vérifiez les lignes, les valeurs manquantes et les colonnes.
         </p>
       </div>
@@ -449,7 +501,7 @@
     {% endif %}
 
     {% if preview_rows %}
-      <div class="table-responsive mt-3">
+      <div class="table-responsive data-preview-scroll mt-3">
         <table class="table app-table compact">
           <thead>
             <tr>
@@ -478,26 +530,184 @@
   </section>
 {% endif %}
 
+        </div>
+
+{% if export_links %}
+  <section class="panel builder-section export-links-panel">
+    <div class="section-title">
+      <span>05</span>
+      <div>
+        <h3>Liens d'export Opendatasoft</h3>
+        <p>Copiez le lien CSV et ajoutez-le dans Opendatasoft comme ressource HTTP/URL.</p>
+      </div>
+    </div>
+
+    {% if export_is_local %}
+      <div class="alert alert-warning app-alert mt-3">
+        Ce lien est local. Pour Opendatasoft, l'API doit être déployée avec une URL HTTPS publique.
+      </div>
+    {% endif %}
+
+    <div class="export-note">
+      <strong>Important :</strong>
+      Opendatasoft n'utilise aucune clé API pour lire cette ressource.
+      Le portail doit pouvoir accéder à une URL publique HTTPS. Le token dans le lien protège uniquement l'API d'export DataBridge.
+    </div>
+
+    <div class="export-link-grid mt-3">
+      <article class="export-link-card">
+        <div class="export-link-card-head">
+          <div>
+            <span class="eyebrow">Titre final</span>
+            <strong>Titre à utiliser dans Opendatasoft</strong>
+          </div>
+          <button
+            class="copy-icon-btn"
+            type="button"
+            data-copy-target="#final-export-title"
+            aria-label="Copier"
+          >
+            <span class="copy-icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </span>
+            <span class="copy-tooltip">Copier</span>
+          </button>
+        </div>
+        <input class="form-control copyable-field" id="final-export-title" value="{{ form_values.title }}" readonly>
+      </article>
+
+      <article class="export-link-card">
+        <div class="export-link-card-head">
+          <div>
+            <span class="eyebrow">Description finale</span>
+            <strong>Texte de description validé</strong>
+          </div>
+          <button
+            class="copy-icon-btn"
+            type="button"
+            data-copy-target="#final-export-description"
+            aria-label="Copier"
+          >
+            <span class="copy-icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </span>
+            <span class="copy-tooltip">Copier</span>
+          </button>
+        </div>
+        <textarea class="form-control copyable-field" id="final-export-description" rows="4" readonly>{{ form_values.description }}</textarea>
+      </article>
+
+      <article class="export-link-card">
+        <div class="export-link-card-head">
+          <div>
+            <span class="eyebrow">CSV</span>
+            <strong>Lien CSV pour Opendatasoft</strong>
+          </div>
+          <button
+            class="copy-icon-btn"
+            type="button"
+            data-copy-target="#csv-export-url"
+            aria-label="Copier"
+          >
+            <span class="copy-icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </span>
+            <span class="copy-tooltip">Copier</span>
+          </button>
+        </div>
+        <input class="form-control copyable-field" id="csv-export-url" value="{{ export_links.csv_url }}" readonly>
+      </article>
+
+      <article class="export-link-card">
+        <div class="export-link-card-head">
+          <div>
+            <span class="eyebrow">JSON</span>
+            <strong>Lien JSON</strong>
+          </div>
+          <button
+            class="copy-icon-btn"
+            type="button"
+            data-copy-target="#json-export-url"
+            aria-label="Copier"
+          >
+            <span class="copy-icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </span>
+            <span class="copy-tooltip">Copier</span>
+          </button>
+        </div>
+        <input class="form-control copyable-field" id="json-export-url" value="{{ export_links.json_url }}" readonly>
+      </article>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap mt-3">
+      <a class="btn btn-soft" href="{% url 'dashboard:dataset_detail' export_links.slug %}">
+        Voir la fiche du jeu de données
+      </a>
+      <a class="btn btn-outline-primary" href="{{ export_links.csv_url }}" target="_blank" rel="noopener">
+        Ouvrir le CSV
+      </a>
+    </div>
+  </section>
+{% endif %}
+
 <section class="publish-panel">
   <div>
-    <span class="eyebrow">Étape 05 — Contrôle et publication</span>
-    <h3>Prévisualiser puis publier le dataset</h3>
+    <span class="eyebrow">Étape 05 — Contrôle et export</span>
+    <h3>Prévisualiser puis générer les liens</h3>
     <p>
-      Commencez par générer un aperçu réel des données. Publiez seulement après vérification.
+      Commencez par générer un aperçu réel des données. Créez ensuite les URLs stables pour Opendatasoft.
     </p>
   </div>
 
   <div class="d-flex gap-2 flex-wrap">
-    <button class="btn btn-soft btn-lg" type="submit" name="action" value="preview">
-      Aperçu des données
-    </button>
+    <span id="preview-action-slot">
+    {% if preview_ready %}
+      <span class="preview-ready-pill">Aperçu validé</span>
+    {% else %}
+      <button class="btn btn-soft btn-lg" type="submit" name="action" value="preview" data-preview-submit="1">
+        Aperçu des données
+      </button>
+    {% endif %}
 
-    <button class="btn btn-primary btn-lg" id="publish-button" type="submit" name="action" value="publish">
-      Publier le dataset
+    </span>
+
+    <button
+      class="btn btn-primary btn-lg"
+      id="generate-links-button"
+      type="submit"
+      name="action"
+      value="generate_links"
+      {% if export_links or not preview_ready or indicator_limit_exceeded %}disabled aria-disabled="true"{% endif %}
+    >
+      {% if export_links %}Liens déjà générés{% else %}Générer les liens Opendatasoft{% endif %}
     </button>
+    {% if False and export_links %}
+      <button
+        class="btn btn-soft btn-lg"
+        type="submit"
+        name="action"
+        value="disabled_export_action"
+        data-confirm-submit="Action indisponible."
+      >
+        Action indisponible
+      </button>
+    {% endif %}
   </div>
 </section>
-      </section>
+      </div>
 
     </div>
   </form>

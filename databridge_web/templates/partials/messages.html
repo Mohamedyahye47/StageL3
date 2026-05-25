@@ -1,9 +1,39 @@
 {% if messages %}
   <div class="message-stack">
     {% for message in messages %}
-      <div class="alert alert-{{ message.tags|default:'info' }} app-alert" role="alert">
-        {{ message }}
-      </div>
+      {% with tags=message.tags|default:"info" %}
+        <div
+          class="glass-message {% if 'success' in tags %}is-success{% elif 'error' in tags or 'danger' in tags or 'failure' in tags %}is-error{% elif 'warning' in tags %}is-warning{% else %}is-info{% endif %}"
+          role="alert"
+        >
+          <div class="glass-message-icon" aria-hidden="true">
+            {% if "success" in tags %}
+              <span>✓</span>
+            {% elif "error" in tags or "danger" in tags or "failure" in tags %}
+              <span>×</span>
+            {% elif "warning" in tags %}
+              <span>!</span>
+            {% else %}
+              <span>i</span>
+            {% endif %}
+          </div>
+          <div class="glass-message-body">
+            <strong class="glass-message-title">
+              {% if "success" in tags %}
+                SUCCÈS
+              {% elif "error" in tags or "danger" in tags or "failure" in tags %}
+                ÉCHEC
+              {% elif "warning" in tags %}
+                ATTENTION
+              {% else %}
+                INFO
+              {% endif %}
+            </strong>
+            <p>{{ message }}</p>
+          </div>
+          <button class="glass-message-close" type="button" data-message-dismiss>FERMER</button>
+        </div>
+      {% endwith %}
     {% endfor %}
   </div>
 {% endif %}

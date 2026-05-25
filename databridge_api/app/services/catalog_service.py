@@ -40,6 +40,7 @@ def list_indicators(
     topic_id: int | None = None,
     search: str = "",
     limit: int = 200,
+    offset: int = 0,
 ) -> list[Indicator]:
     query = (
         select(Indicator)
@@ -59,7 +60,9 @@ def list_indicators(
                 Indicator.description.ilike(pattern),
             )
         )
-    return db.scalars(query.order_by(Indicator.code.asc()).limit(limit)).all()
+    return db.scalars(
+        query.order_by(Indicator.code.asc()).offset(max(0, offset)).limit(limit)
+    ).all()
 
 
 def list_countries(

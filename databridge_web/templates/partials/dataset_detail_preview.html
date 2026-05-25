@@ -1,0 +1,80 @@
+{% if preview_error %}
+  <div class="alert alert-warning app-alert">
+    <strong>{{ preview_error }}</strong>
+    {% if preview_error_detail %}
+      <p class="mb-0 mt-1">{{ preview_error_detail|truncatechars:180 }}</p>
+    {% endif %}
+  </div>
+{% elif data_preview %}
+  <div class="preview-detail-card">
+    <div class="preview-success-ribbon" role="status" aria-live="polite">
+      <span class="preview-pulse"></span>
+      <div>
+        <strong>Aperçu chargé</strong>
+        <small>
+          Aperçu limité aux {{ data_preview.preview_count|default:preview_limit }} première(s) ligne(s).
+          Les liens CSV/JSON ne sont pas régénérés.
+        </small>
+      </div>
+    </div>
+
+    <div class="review-grid preview-metric-grid mt-3">
+      <div class="review-card">
+        <span>Lignes totales</span>
+        <strong>{{ data_preview.row_count }}</strong>
+      </div>
+      <div class="review-card">
+        <span>Lignes affichées</span>
+        <strong>{{ data_preview.preview_count }}</strong>
+      </div>
+      <div class="review-card">
+        <span>Valeurs non nulles</span>
+        <strong>{{ data_preview.non_null_value_count }}</strong>
+      </div>
+      <div class="review-card">
+        <span>Indicateurs manquants</span>
+        <strong>{{ data_preview.missing_indicator_codes|length }}</strong>
+      </div>
+    </div>
+
+    {% if data_preview.missing_indicator_codes %}
+      <div class="alert alert-warning app-alert mt-3">
+        Aucun résultat trouvé pour certains indicateurs :
+        {{ data_preview.missing_indicator_codes|join:", " }}
+      </div>
+    {% endif %}
+
+    {% if preview_rows %}
+      <div class="table-responsive data-preview-scroll mt-3">
+        <table class="table app-table compact">
+          <thead>
+            <tr>
+              {% for column in preview_columns %}
+                <th>{{ column }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in preview_rows %}
+              <tr>
+                {% for value in row %}
+                  <td>{{ value|default:"-" }}</td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state compact mt-3">
+        <strong>Aucune donnée disponible pour cette configuration.</strong>
+        <p>L’aperçu n’a retourné aucune ligne exploitable.</p>
+      </div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="empty-state compact">
+    <strong>Aucune donnée disponible pour cette configuration.</strong>
+    <p>Aucune version exploitable n’a été trouvée pour charger l’aperçu.</p>
+  </div>
+{% endif %}

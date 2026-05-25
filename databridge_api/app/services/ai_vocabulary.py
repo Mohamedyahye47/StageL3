@@ -504,6 +504,13 @@ DOMAIN_SEARCH_TERMS: dict[str, tuple[str, ...]] = {
 
 
 COUNTRY_ALIASES: dict[str, str] = {
+    "chine": "Chine",
+    "china": "Chine",
+    "chn": "Chine",
+    "cn": "Chine",
+    "republique populaire de chine": "Chine",
+    "république populaire de chine": "Chine",
+
     "mauritania": "Mauritanie",
     "mauritanie": "Mauritanie",
     "mrt": "Mauritanie",
@@ -520,9 +527,17 @@ COUNTRY_ALIASES: dict[str, str] = {
 
     "morocco": "Maroc",
     "maroc": "Maroc",
+    "mar": "Maroc",
+    "ma": "Maroc",
 
     "senegal": "Sénégal",
     "sénégal": "Sénégal",
+    "sen": "Sénégal",
+    "sn": "Sénégal",
+
+    "france": "France",
+    "fra": "France",
+    "fr": "France",
 
     "mali": "Mali",
     "niger": "Niger",

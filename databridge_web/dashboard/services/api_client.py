@@ -11,32 +11,70 @@ class BackendUnavailable(Exception):
 
 
 class ApiError(Exception):
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(self, message: str, *, status_code: int | None = None, payload: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.payload = payload or {}
 
 
 def _url(path: str) -> str:
+    if path.startswith(("http://", "https://")):
+        raise ValueError("Les appels API internes doivent utiliser un chemin relatif FastAPI.")
     return f"{settings.FASTAPI_BASE_URL}{path}"
+
+
+def _headers(headers: dict[str, str] | None = None) -> dict[str, str]:
+    merged = dict(headers or {})
+    token = getattr(settings, "INTERNAL_API_TOKEN", "")
+    if token:
+        merged["X-Internal-Token"] = token
+    return merged
 
 
 def _request(method: str, path: str, **kwargs) -> Any:
     timeout = kwargs.pop("timeout", settings.REQUEST_TIMEOUT_SECONDS)
+    kwargs["headers"] = _headers(kwargs.pop("headers", None))
     try:
         response = requests.request(method, _url(path), timeout=timeout, **kwargs)
     except requests.RequestException as exc:
-        raise BackendUnavailable("Le backend est indisponible. Vérifiez que l'API FastAPI est lancée.") from exc
+        raise BackendUnavailable("API FastAPI indisponible. Vérifiez que le serveur backend est lancé.") from exc
 
     if response.status_code >= 400:
         try:
-            detail = response.json().get("detail")
+            body = response.json()
         except ValueError:
-            detail = response.text
-        raise ApiError(detail or "Une erreur API est survenue.", status_code=response.status_code)
+            body = {"message": response.text}
+        detail = body.get("detail", body) if isinstance(body, dict) else body
+        if isinstance(detail, dict):
+            message = detail.get("message") or detail.get("error") or "Une erreur API est survenue."
+            payload = detail
+        else:
+            message = str(detail or "Une erreur API est survenue.")
+            payload = body if isinstance(body, dict) else {}
+        raise ApiError(message, status_code=response.status_code, payload=payload)
 
     if response.status_code == 204:
         return None
     return response.json()
+
+
+def _request_raw(method: str, path: str, **kwargs) -> requests.Response:
+    timeout = kwargs.pop("timeout", settings.REQUEST_TIMEOUT_SECONDS)
+    kwargs["headers"] = _headers(kwargs.pop("headers", None))
+    try:
+        response = requests.request(method, _url(path), timeout=timeout, **kwargs)
+    except requests.RequestException as exc:
+        raise BackendUnavailable("API FastAPI indisponible. Verifiez que le serveur backend est lance.") from exc
+
+    if response.status_code >= 400:
+        try:
+            body = response.json()
+        except ValueError:
+            body = {"message": response.text}
+        detail = body.get("detail", body) if isinstance(body, dict) else body
+        message = detail.get("message") if isinstance(detail, dict) else str(detail)
+        raise ApiError(message or "Une erreur API est survenue.", status_code=response.status_code, payload=body)
+    return response
 
 
 def get_sources() -> list[dict[str, Any]]:
@@ -58,8 +96,9 @@ def get_indicators(
     topic_id: int | None = None,
     search: str = "",
     limit: int = 200,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"search": search, "limit": limit}
+    params: dict[str, Any] = {"search": search, "limit": limit, "offset": offset}
     if source_code:
         params["source_code"] = source_code
     if topic_id:
@@ -67,18 +106,27 @@ def get_indicators(
     return _request("GET", "/api/indicators", params=params)
 
 
+def get_source_limits() -> dict[str, Any]:
+    return _request("GET", "/api/source-limits")
+
+
 def get_countries(*, search: str = "", limit: int = 50) -> list[dict[str, Any]]:
     return _request("GET", "/api/countries", params={"search": search, "limit": limit})
 
 
-def publish_dataset(payload: dict[str, Any]) -> dict[str, Any]:
-    return _request("POST", "/api/publish-dataset", json=payload, timeout=max(settings.REQUEST_TIMEOUT_SECONDS, 90))
+def generate_export_links(payload: dict[str, Any]) -> dict[str, Any]:
+    return _request(
+        "POST",
+        "/api/datasets/generate-export-links",
+        json=payload,
+        timeout=max(settings.REQUEST_TIMEOUT_SECONDS, 90),
+    )
 
 
 def preview_dataset(payload: dict, limit: int = 50) -> dict:
     """
     Builds a real data preview through FastAPI.
-    This does not publish to Hugging Face.
+    This does not create an export configuration.
     """
     return _request(
         "POST",
@@ -87,31 +135,31 @@ def preview_dataset(payload: dict, limit: int = 50) -> dict:
     )
 
 
-def get_published_datasets() -> list[dict[str, Any]]:
-    return _request("GET", "/api/published-datasets")
+def get_export_datasets() -> list[dict[str, Any]]:
+    return _request("GET", "/api/export-datasets")
 
 
 def get_dataset_detail(slug: str) -> dict[str, Any]:
-    return _request("GET", f"/api/published-datasets/{slug}")
+    return _request("GET", f"/api/export-datasets/{slug}")
 
 
 def get_dataset_versions(slug: str) -> list[dict[str, Any]]:
-    return _request("GET", f"/api/published-datasets/{slug}/versions")
+    return _request("GET", f"/api/export-datasets/{slug}/versions")
 
 
 def get_dataset_preview(slug: str, version: int, *, limit: int = 25) -> dict[str, Any]:
-    return _request("GET", f"/api/published-datasets/{slug}/versions/{version}/data-preview", params={"limit": limit})
+    return _request("GET", f"/api/export-datasets/{slug}/versions/{version}/data-preview", params={"limit": limit})
 
 
-def get_hf_health() -> dict[str, Any]:
-    return _request("GET", "/api/hf/health")
+def get_export_health() -> dict[str, Any]:
+    return _request("GET", "/api/export/health")
 
 
-def get_ai_dataset_recommendation(user_request: str) -> dict:
+def get_ai_dataset_recommendation(user_request: str, *, local_only: bool = False) -> dict:
     """
     Calls FastAPI AI assistant endpoint.
-    Django does not call Gemini directly.
-    Gemini key stays only in FastAPI backend.
+    Django does not call AI providers directly.
+    Provider keys stay only in the FastAPI backend.
     """
     if not user_request or not user_request.strip():
         raise ValueError("La demande utilisateur est obligatoire.")
@@ -119,20 +167,30 @@ def get_ai_dataset_recommendation(user_request: str) -> dict:
     return _request(
         "POST",
         "/api/ai/recommend-dataset",
+        params={"local_only": "true"} if local_only else None,
         json={"user_request": user_request.strip()},
     )
 
 
-
-def sync_published_datasets_with_hf() -> dict:
-    return _request(
-        "POST",
-        "/api/published-datasets/sync-hf",
-    )
+def get_ai_runtime_config() -> dict[str, Any]:
+    return _request("GET", "/api/ai/runtime-config")
 
 
-def delete_published_dataset(slug: str) -> dict:
+def update_ai_runtime_config(payload: dict[str, Any]) -> dict[str, Any]:
+    return _request("POST", "/api/ai/runtime-config", json=payload)
+
+
+def check_export_mode() -> dict:
+    return _request("POST", "/api/export-datasets/check-mode")
+
+
+def delete_export_dataset(slug: str) -> dict:
     return _request(
         "DELETE",
-        f"/api/published-datasets/{slug}",
+        f"/api/export-datasets/{slug}",
     )
+
+
+def get_export_chronology_chart() -> tuple[bytes, str]:
+    response = _request_raw("GET", "/api/export/charts/chronology.png", timeout=settings.REQUEST_TIMEOUT_SECONDS)
+    return response.content, response.headers.get("content-type", "image/png")

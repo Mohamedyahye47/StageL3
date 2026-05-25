@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -46,7 +46,7 @@ class Indicator(Base):
 
     source: Mapped[Source] = relationship(back_populates="indicators")
     topic_links: Mapped[list["IndicatorTopic"]] = relationship(back_populates="indicator")
-    version_links: Mapped[list["PublishedDatasetVersionIndicator"]] = relationship(back_populates="indicator")
+    export_links: Mapped[list["ExportDatasetIndicator"]] = relationship(back_populates="indicator")
 
     @property
     def topic_ids(self) -> list[int]:
@@ -75,80 +75,61 @@ class Country(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
 
-    versions: Mapped[list["PublishedDatasetVersion"]] = relationship(back_populates="country")
+    exports: Mapped[list["ExportDataset"]] = relationship(back_populates="country")
 
 
-class PublishedDataset(Base):
-    __tablename__ = "published_datasets"
+class ExportDataset(Base):
+    __tablename__ = "export_datasets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     slug: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
-    remote_provider: Mapped[str] = mapped_column(String, nullable=False)
-    remote_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    visibility: Mapped[str] = mapped_column(String, nullable=False)
-    status: Mapped[str] = mapped_column(String, nullable=False)
-    latest_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_at: Mapped[str] = mapped_column(String, nullable=False)
-    published_at: Mapped[str] = mapped_column(String, nullable=False)
-    updated_at: Mapped[str] = mapped_column(String, nullable=False)
-
-    versions: Mapped[list["PublishedDatasetVersion"]] = relationship(
-        back_populates="dataset",
-        order_by="PublishedDatasetVersion.version",
-    )
-    publish_logs: Mapped[list["PublishLog"]] = relationship(back_populates="dataset")
-
-
-class PublishedDatasetVersion(Base):
-    __tablename__ = "published_dataset_versions"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    dataset_id: Mapped[int] = mapped_column(ForeignKey("published_datasets.id"), nullable=False)
-    version: Mapped[int] = mapped_column(Integer, nullable=False)
-    remote_version: Mapped[str] = mapped_column(String, nullable=False)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"), nullable=False)
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), nullable=False)
     country_id: Mapped[int] = mapped_column(ForeignKey("countries.id"), nullable=False)
     start_date: Mapped[str] = mapped_column(String, nullable=False)
     end_date: Mapped[str] = mapped_column(String, nullable=False)
-    format: Mapped[str] = mapped_column(String, nullable=False)
-    frequency: Mapped[str] = mapped_column(String, nullable=False)
-    manifest_url: Mapped[str] = mapped_column(Text, nullable=False)
-    build_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    provider: Mapped[str] = mapped_column(String, nullable=False, default="opendatasoft_url")
+    csv_export_url: Mapped[str] = mapped_column(Text, nullable=False)
+    json_export_url: Mapped[str] = mapped_column(Text, nullable=False)
+    latest_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    format: Mapped[str] = mapped_column(String, nullable=False, default="csv")
+    frequency: Mapped[str] = mapped_column(String, nullable=False, default="non precisee")
+    build_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[str] = mapped_column(String, nullable=False)
-    published_at: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False)
 
-    dataset: Mapped[PublishedDataset] = relationship(back_populates="versions")
-    country: Mapped[Country] = relationship(back_populates="versions")
-    indicator_links: Mapped[list["PublishedDatasetVersionIndicator"]] = relationship(back_populates="dataset_version")
-    publish_logs: Mapped[list["PublishLog"]] = relationship(back_populates="version")
-
-
-class PublishedDatasetVersionIndicator(Base):
-    __tablename__ = "published_dataset_version_indicators"
-
-    dataset_version_id: Mapped[int] = mapped_column(
-        ForeignKey("published_dataset_versions.id"),
-        primary_key=True,
-    )
-    indicator_id: Mapped[int] = mapped_column(ForeignKey("indicators.id"), primary_key=True)
-
-    dataset_version: Mapped[PublishedDatasetVersion] = relationship(back_populates="indicator_links")
-    indicator: Mapped[Indicator] = relationship(back_populates="version_links")
+    source: Mapped[Source] = relationship()
+    topic: Mapped[Topic] = relationship()
+    country: Mapped[Country] = relationship(back_populates="exports")
+    indicator_links: Mapped[list["ExportDatasetIndicator"]] = relationship(back_populates="export_dataset")
+    export_logs: Mapped[list["ExportLog"]] = relationship(back_populates="export_dataset")
 
 
-class PublishLog(Base):
-    __tablename__ = "publish_logs"
+class ExportDatasetIndicator(Base):
+    __tablename__ = "export_dataset_indicators"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    dataset_id: Mapped[int | None] = mapped_column(ForeignKey("published_datasets.id"))
-    version_id: Mapped[int | None] = mapped_column(ForeignKey("published_dataset_versions.id"))
-    remote_provider: Mapped[str] = mapped_column(String, nullable=False)
-    remote_id: Mapped[str | None] = mapped_column(String)
-    remote_version: Mapped[str | None] = mapped_column(String)
+    export_dataset_id: Mapped[int] = mapped_column(ForeignKey("export_datasets.id"), nullable=False)
+    indicator_id: Mapped[int] = mapped_column(ForeignKey("indicators.id"), nullable=False)
+
+    export_dataset: Mapped[ExportDataset] = relationship(back_populates="indicator_links")
+    indicator: Mapped[Indicator] = relationship(back_populates="export_links")
+
+
+class ExportLog(Base):
+    __tablename__ = "export_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    export_dataset_id: Mapped[int | None] = mapped_column(ForeignKey("export_datasets.id"))
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    row_count: Mapped[int | None] = mapped_column(Integer)
+    non_null_value_count: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String, nullable=False)
-    message: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
 
-    dataset: Mapped[PublishedDataset | None] = relationship(back_populates="publish_logs")
-    version: Mapped[PublishedDatasetVersion | None] = relationship(back_populates="publish_logs")
+    export_dataset: Mapped[ExportDataset | None] = relationship(back_populates="export_logs")

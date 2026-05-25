@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% load richat_ui %}
 
-{% block title %}{% if detail %}{{ detail.title }}{% else %}Dataset{% endif %} | Richat DataBridge{% endblock %}
-{% block page_title %}Fiche dataset{% endblock %}
+{% block title %}{% if detail %}{{ detail.title }}{% else %}Jeu de données{% endif %} | Richat DataBridge{% endblock %}
+{% block page_title %}Fiche jeu de données{% endblock %}
 
 {% block content %}
   {% if backend_error %}
@@ -13,7 +14,7 @@
     {# ── Title / Hero ─────────────────────────────────── #}
     <section class="detail-hero">
       <div style="flex:1; min-width:0;">
-        <span class="eyebrow">Fiche publication</span>
+        <span class="eyebrow">Fiche export</span>
         <h2>{{ detail.title }}</h2>
         <p>{{ detail.description }}</p>
 
@@ -23,60 +24,114 @@
             {{ detail.slug }}
           </span>
           <span class="chip-labeled">
-            <span class="chip-key">Dépôt</span>
-            {% if detail.remote_provider == "huggingface" %}Hugging Face
-            {% else %}{{ detail.remote_provider }}{% endif %}
+            <span class="chip-key">Mode</span>
+            API d'export
           </span>
           <span class="chip-labeled">
-            <span class="chip-key">Statut</span>
-            {% if detail.status == "published" %}Publié
-            {% elif detail.status == "draft" %}Brouillon
-            {% elif detail.status == "archived" %}Archivé
-            {% else %}{{ detail.status }}{% endif %}
+          <span class="chip-key">Statut</span>
+          {{ detail.status|status_label }}
           </span>
           <span class="chip-labeled">
             <span class="chip-key">Version</span>
             v{{ detail.latest_version }}
           </span>
           <span class="chip-labeled">
-            <span class="chip-key">Visibilité</span>
-            {% if detail.visibility == "public" %}Public
-            {% elif detail.visibility == "private" %}Privé
-            {% else %}{{ detail.visibility }}{% endif %}
+            <span class="chip-key">Accès</span>
+            Token requis
           </span>
         </div>
       </div>
 
       <div class="hero-actions">
-        {% if detail.remote_url %}
-          <a class="btn btn-soft" href="{{ detail.remote_url }}" target="_blank" rel="noopener">
+        {% if csv_view_url %}
+          <a class="btn btn-soft" href="{{ csv_view_url }}" target="_blank" rel="noopener">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
               <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
               <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
             </svg>
-            Dépôt distant
+            Voir le CSV
           </a>
         {% endif %}
-        {% if data_url %}
-          <a class="btn btn-outline-primary" href="{{ data_url }}" target="_blank" rel="noopener">
+        {% if json_url %}
+          <a class="btn btn-outline-primary" href="{{ json_url }}" target="_blank" rel="noopener">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-9.707a1 1 0 011.414 0L9 8.586V3a1 1 0 112 0v5.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
             </svg>
-            CSV
+            JSON
           </a>
         {% endif %}
         <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}?mode=version&existing_slug={{ detail.slug }}">
-          + Nouvelle version
+          + Mettre à jour l’export
         </a>
+      </div>
+    </section>
+
+    <section class="panel export-links-panel">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">API d'export</span>
+          <h3>Liens à fournir à Opendatasoft</h3>
+          <p>Le lien CSV est le lien principal à utiliser dans OpenDataSoft. Le lien JSON est optionnel.</p>
+        </div>
+      </div>
+
+      {% if export_is_local %}
+        <div class="alert alert-warning app-alert">
+          Ce lien est local. Pour Opendatasoft, l'API doit être déployée avec une URL HTTPS publique.
+        </div>
+      {% endif %}
+
+      <div class="export-link-grid">
+        {% if csv_url %}
+          <article class="export-link-card">
+            <div class="export-link-card-head">
+              <div>
+                <span class="eyebrow">CSV</span>
+                <strong>Lien CSV pour Opendatasoft</strong>
+              </div>
+              <button class="copy-icon-btn" type="button" data-copy-target="#detail-csv-export-url" aria-label="Copier">
+                <span class="copy-icon" aria-hidden="true">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                    <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                  </svg>
+                </span>
+                <span class="copy-tooltip">Copier</span>
+              </button>
+            </div>
+            <input class="form-control copyable-field" id="detail-csv-export-url" value="{{ csv_url }}" readonly>
+          </article>
+        {% endif %}
+
+        {% if json_url %}
+          <article class="export-link-card">
+            <div class="export-link-card-head">
+              <div>
+                <span class="eyebrow">JSON</span>
+                <strong>Lien JSON</strong>
+              </div>
+              <button class="copy-icon-btn" type="button" data-copy-target="#detail-json-export-url" aria-label="Copier">
+                <span class="copy-icon" aria-hidden="true">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                    <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                  </svg>
+                </span>
+                <span class="copy-tooltip">Copier</span>
+              </button>
+            </div>
+            <input class="form-control copyable-field" id="detail-json-export-url" value="{{ json_url }}" readonly>
+          </article>
+        {% endif %}
       </div>
     </section>
 
     {# ── Metadata row ─────────────────────────────────── #}
     <section class="metric-grid detail-metrics">
       <article class="metric-card accent-blue">
-        <span>Dernière version</span>
+        <span>Version courante</span>
         <strong>v{{ detail.latest_version }}</strong>
-        <small>{{ selected_version.remote_version }}</small>
+        <small>{{ selected_version.export_version }}</small>
       </article>
       <article class="metric-card accent-teal">
         <span>Pays</span>
@@ -96,22 +151,22 @@
       <article class="metric-card accent-indigo">
         <span>Indicateurs</span>
         <strong>{{ selected_version.indicators|length }}</strong>
-        <small>Variables publiées</small>
+        <small>Variables exposées</small>
       </article>
     </section>
 
-    {# ── Version Switcher ─────────────────────────────── #}
+    {# ── Current export state ─────────────────────────── #}
     <section class="panel">
       <div class="version-switcher">
         <div>
-          <span class="eyebrow">Historique</span>
-          <h3>Versions disponibles</h3>
+          <span class="eyebrow">État de l’export</span>
+          <h3>Version actuelle</h3>
         </div>
         <div class="version-pills">
           {% for version in versions %}
             <a class="version-pill {% if selected_version.version == version.version %}active{% endif %}"
                href="?version={{ version.version }}">
-              {{ version.remote_version }}
+              {{ version.export_version }}
             </a>
           {% endfor %}
         </div>
@@ -133,7 +188,7 @@
         </li>
         <li class="nav-item" role="presentation">
           <button class="nav-link" id="versions-tab" data-bs-toggle="tab" data-bs-target="#versions" type="button" role="tab">
-            Versions
+            Configuration actuelle
           </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -154,24 +209,20 @@
         <div class="tab-pane fade show active" id="overview" role="tabpanel">
           <div class="info-grid">
             <div class="info-row">
-              <span>Identifiant distant</span>
-              <strong>{{ detail.remote_id }}</strong>
+              <span>Identifiant d'export</span>
+              <strong>{{ detail.export_id }}</strong>
             </div>
             <div class="info-row">
-              <span>Visibilité</span>
-              <strong>
-                {% if detail.visibility == "public" %}Public
-                {% elif detail.visibility == "private" %}Privé
-                {% else %}{{ detail.visibility }}{% endif %}
-              </strong>
+              <span>Accès</span>
+              <strong>Token requis</strong>
             </div>
             <div class="info-row">
               <span>Format</span>
               <strong>{{ selected_version.format|upper }}</strong>
             </div>
             <div class="info-row">
-              <span>Publié le</span>
-              <strong>{{ selected_version.published_at|slice:":16" }}</strong>
+              <span>Généré le</span>
+              <strong>{{ selected_version.generated_at|slice:":16" }}</strong>
             </div>
             <div class="info-row">
               <span>Début de période</span>
@@ -188,6 +239,32 @@
         <div class="tab-pane fade" id="preview" role="tabpanel">
           {% if preview_error %}
             <div class="alert alert-warning app-alert">{{ preview_error }}</div>
+          {% elif preview_deferred %}
+            {% if selected_version.version == detail.latest_version %}
+              {# Only the current configuration can be previewed #}
+              <div
+                class="dataset-detail-preview-zone"
+                data-detail-preview-zone
+                data-detail-preview-url="{% url 'dashboard:ajax_dataset_detail_preview' detail.slug %}?version={{ selected_version.version }}&limit=50"
+              >
+                <div class="empty-state compact">
+                  <strong>Aperçu non chargé</strong>
+                  <p>La fiche détail affiche d’abord les métadonnées. Chargez l’aperçu uniquement si vous voulez reconstruire les premières lignes dans l’application.</p>
+                  <button class="btn btn-primary" type="button" data-load-detail-preview>
+                    Charger l’aperçu
+                  </button>
+                </div>
+              </div>
+            {% else %}
+              <div class="empty-state compact">
+                <strong>Aperçu disponible uniquement pour la configuration courante</strong>
+                <p>
+                  L’aperçu intégré reconstruit les données depuis la source.
+                  Sélectionnez la configuration courante <strong>v{{ detail.latest_version }}</strong> pour activer le chargement.
+                </p>
+                <a class="btn btn-soft" href="?version={{ detail.latest_version }}">Voir la configuration courante</a>
+              </div>
+            {% endif %}
           {% elif preview_rows %}
             <div class="table-responsive">
               <table class="table app-table compact">
@@ -212,18 +289,18 @@
           {% else %}
             <div class="empty-state compact">
               <strong>Aucun aperçu disponible</strong>
-              <p>Le fichier CSV distant n'a pas pu être affiché pour cette version.</p>
+              <p>L'aperçu API n'a pas pu être affiché pour cette configuration.</p>
             </div>
           {% endif %}
         </div>
 
-        {# Versions #}
+        {# Current configuration #}
         <div class="tab-pane fade" id="versions" role="tabpanel">
           <div class="version-list">
             {% for version in versions %}
               <article class="version-card {% if selected_version.version == version.version %}active{% endif %}">
                 <div>
-                  <strong>{{ version.remote_version }}</strong>
+                  <strong>{{ version.export_version }}</strong>
                   <small>{{ version.country.name }} — {{ version.start_date }} à {{ version.end_date }}</small>
                 </div>
                 <span class="soft-pill">{{ version.indicators|length }} indicateur(s)</span>
@@ -245,17 +322,13 @@
                 <article class="indicator-card">
                   <strong>{{ indicator.code }}</strong>
                   <span>{{ indicator.name }}</span>
-                  <small>
-                    {% if indicator.unit %}{{ indicator.unit }}
-                    {% else %}Unité non précisée{% endif %}
-                  </small>
                 </article>
               {% endfor %}
             </div>
           {% else %}
             <div class="empty-state compact">
               <strong>Aucun indicateur associé</strong>
-              <p>Cette version ne contient pas de sélection exploitable.</p>
+              <p>Cette configuration ne contient pas de sélection exploitable.</p>
             </div>
           {% endif %}
         </div>
@@ -265,7 +338,7 @@
 
   {% else %}
     <div class="empty-state" style="margin-top:20px;">
-      <strong>Dataset introuvable</strong>
+      <strong>Jeu de données introuvable</strong>
       <p>Impossible de charger la fiche demandée.</p>
       <a class="btn btn-primary" href="{% url 'dashboard:dataset_list' %}">Retour au catalogue</a>
     </div>

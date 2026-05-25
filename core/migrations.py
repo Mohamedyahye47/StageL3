@@ -65,61 +65,58 @@ CREATE TABLE IF NOT EXISTS countries (
 CREATE INDEX IF NOT EXISTS idx_countries_enabled_name
     ON countries (enabled, name);
 
-CREATE TABLE IF NOT EXISTS published_datasets (
+CREATE TABLE IF NOT EXISTS export_datasets (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     slug            TEXT NOT NULL UNIQUE,
     title           TEXT NOT NULL,
     description     TEXT NOT NULL,
-    remote_provider TEXT NOT NULL,
-    remote_id       TEXT NOT NULL UNIQUE,
-    visibility      TEXT NOT NULL,
+    source_id       INTEGER NOT NULL,
+    topic_id        INTEGER NOT NULL,
+    country_id      INTEGER NOT NULL,
+    start_date      TEXT NOT NULL,
+    end_date        TEXT NOT NULL,
     status          TEXT NOT NULL,
-    latest_version  INTEGER NOT NULL DEFAULT 0,
+    provider        TEXT NOT NULL DEFAULT 'opendatasoft_url',
+    csv_export_url  TEXT NOT NULL,
+    json_export_url TEXT NOT NULL,
+    latest_version  INTEGER NOT NULL DEFAULT 1,
+    format          TEXT NOT NULL DEFAULT 'csv',
+    frequency       TEXT NOT NULL DEFAULT 'non precisee',
+    build_json      TEXT NOT NULL DEFAULT '{}',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    published_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (source_id) REFERENCES sources(id),
+    FOREIGN KEY (topic_id) REFERENCES topics(id),
+    FOREIGN KEY (country_id) REFERENCES countries(id)
 );
 
-CREATE TABLE IF NOT EXISTS published_dataset_versions (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    dataset_id     INTEGER NOT NULL,
-    version        INTEGER NOT NULL,
-    remote_version TEXT NOT NULL,
-    country_id     INTEGER NOT NULL,
-    start_date     TEXT NOT NULL,
-    end_date       TEXT NOT NULL,
-    format         TEXT NOT NULL,
-    frequency      TEXT NOT NULL,
-    manifest_url   TEXT NOT NULL,
-    build_json     TEXT NOT NULL,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-    published_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (dataset_id) REFERENCES published_datasets(id),
-    FOREIGN KEY (country_id) REFERENCES countries(id),
-    UNIQUE (dataset_id, version)
+CREATE INDEX IF NOT EXISTS idx_export_datasets_updated_at
+    ON export_datasets (updated_at);
+
+CREATE TABLE IF NOT EXISTS export_dataset_indicators (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    export_dataset_id INTEGER NOT NULL,
+    indicator_id      INTEGER NOT NULL,
+    FOREIGN KEY (export_dataset_id) REFERENCES export_datasets(id),
+    FOREIGN KEY (indicator_id) REFERENCES indicators(id),
+    UNIQUE (export_dataset_id, indicator_id)
 );
 
-CREATE TABLE IF NOT EXISTS published_dataset_version_indicators (
-    dataset_version_id INTEGER NOT NULL,
-    indicator_id       INTEGER NOT NULL,
-    PRIMARY KEY (dataset_version_id, indicator_id),
-    FOREIGN KEY (dataset_version_id) REFERENCES published_dataset_versions(id),
-    FOREIGN KEY (indicator_id) REFERENCES indicators(id)
+CREATE TABLE IF NOT EXISTS export_logs (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    export_dataset_id      INTEGER,
+    action                TEXT NOT NULL,
+    row_count             INTEGER,
+    non_null_value_count  INTEGER,
+    status                TEXT NOT NULL,
+    error_message         TEXT,
+    duration_seconds      REAL,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (export_dataset_id) REFERENCES export_datasets(id)
 );
 
-CREATE TABLE IF NOT EXISTS publish_logs (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    dataset_id     INTEGER,
-    version_id     INTEGER,
-    remote_provider TEXT NOT NULL,
-    remote_id      TEXT,
-    remote_version TEXT,
-    status         TEXT NOT NULL,
-    message        TEXT,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (dataset_id) REFERENCES published_datasets(id),
-    FOREIGN KEY (version_id) REFERENCES published_dataset_versions(id)
-);
+CREATE INDEX IF NOT EXISTS idx_export_logs_dataset_created
+    ON export_logs (export_dataset_id, created_at);
 """
 
 LOCAL_FIRST_TABLE_RENAMES = {

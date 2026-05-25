@@ -8,6 +8,44 @@ class AiRecommendationIn(BaseModel):
     user_request: str = Field(min_length=3, max_length=1000)
 
 
+class AiRuntimeConfigIn(BaseModel):
+    AI_NORMALIZER_PROVIDER: str = "gemini"
+    AI_NORMALIZER_MODEL: str
+    AI_SELECTOR_PROVIDER: str = "gemini"
+    AI_SELECTOR_MODEL: str
+    AI_ENABLE_EVALUATOR: bool = True
+    AI_EVALUATOR_PROVIDER: str = "gemini"
+    AI_EVALUATOR_MODEL: str
+    AI_EVALUATOR_MODE: str = "audit_only"
+    AI_ENABLE_BUSINESS_RULES: bool = True
+    AI_MAX_CANDIDATES: int = Field(default=40, ge=10, le=100)
+    AI_TARGET_INDICATORS: int = Field(default=5, ge=1, le=20)
+    WB_MAX_INDICATORS_PER_DATASET: int = Field(default=60, ge=1, le=60)
+
+
+class AiProviderRuntimeOption(BaseModel):
+    code: str
+    label: str
+    models: list[str] = Field(default_factory=list)
+    default_model: str = ""
+    implemented: bool = False
+    configured: bool = False
+    available: bool = False
+    json_capability: str = "unsupported"
+    supported_layers: list[str] = Field(default_factory=list)
+    disabled_reason: str | None = None
+    key_envs: list[str] = Field(default_factory=list)
+
+
+class AiRuntimeConfigOut(AiRuntimeConfigIn):
+    message: str
+    persistence: str = "runtime_memory"
+    providers_by_layer: dict[str, list[AiProviderRuntimeOption]] = Field(default_factory=dict)
+    disabled_providers_by_layer: dict[str, list[AiProviderRuntimeOption]] = Field(default_factory=dict)
+    models_by_layer: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class SourceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,26 +105,35 @@ class PublishDatasetIn(BaseModel):
     frequency: str | None = None
 
 
-class PublishedDatasetVersionOut(BaseModel):
+class ExportDatasetVersionOut(BaseModel):
     id: int
     version: int
-    remote_version: str
+    export_version: str
     start_date: str
     end_date: str
     format: str
     frequency: str
-    manifest_url: str
-    published_at: str
+    csv_url: str
+    json_url: str
+    generated_at: str
     country: CountryOut
     indicators: list[IndicatorOut] = Field(default_factory=list)
     manifest: dict[str, Any]
 
 
-class PublishedDatasetDataPreviewOut(BaseModel):
+# FIX: Was missing row_count, non_null_value_count, missing_indicator_codes.
+# The publish_service.get_dataset_version_data_preview() returns all these fields,
+# but the old schema caused Pydantic to strip them before sending to the client.
+# The detail-preview template (partials/dataset_detail_preview.html) needs them
+# to render the metrics cards correctly.
+class ExportDatasetDataPreviewOut(BaseModel):
     data_url: str
     columns: list[str] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
     preview_count: int
+    row_count: int = 0
+    non_null_value_count: int = 0
+    missing_indicator_codes: list[str] = Field(default_factory=list)
 
 
 class DatasetBuildPreviewOut(BaseModel):
@@ -100,58 +147,57 @@ class DatasetBuildPreviewOut(BaseModel):
     indicators: list[IndicatorOut] = Field(default_factory=list)
 
 
-class PublishedDatasetListOut(BaseModel):
+class ExportDatasetListOut(BaseModel):
     id: int
     slug: str
     title: str
     description: str
     country: CountryOut
     latest_version: int
-    published_at: str
-    remote_provider: str
-    remote_id: str
-    remote_url: str
-    last_publish_status: str | None = None
+    updated_at: str
+    provider: str
+    export_id: str
+    csv_url: str | None = None
+    json_url: str | None = None
+    last_export_status: str | None = None
 
 
-class PublishedDatasetDetailOut(BaseModel):
+class ExportDatasetDetailOut(BaseModel):
     id: int
     slug: str
     title: str
     description: str
-    remote_provider: str
-    remote_id: str
-    remote_url: str
-    visibility: str
+    provider: str
+    export_id: str
+    csv_url: str | None = None
+    json_url: str | None = None
     status: str
     latest_version: int
     created_at: str
-    published_at: str
     updated_at: str
-    latest_version_detail: PublishedDatasetVersionOut
-    versions: list[PublishedDatasetVersionOut] = Field(default_factory=list)
+    latest_version_detail: ExportDatasetVersionOut
+    versions: list[ExportDatasetVersionOut] = Field(default_factory=list)
 
 
-class PublishResultOut(BaseModel):
-    dataset_id: int
-    version_id: int
+class ExportLogOut(BaseModel):
+    id: int
+    export_dataset_id: int | None = None
+    action: str
+    row_count: int | None = None
+    non_null_value_count: int | None = None
+    status: str
+    error_message: str | None = None
+    duration_seconds: float | None = None
+    created_at: str
+
+
+class ExportLinksOut(BaseModel):
     slug: str
     title: str
     description: str
-    version: int
-    remote_version: str
-    remote_id: str
-    remote_url: str
-    manifest_url: str
-    published_at: str
-    country: CountryOut
-    indicators: list[IndicatorOut] = Field(default_factory=list)
-    manifest: dict[str, Any]
-
-
-class HfHealthOut(BaseModel):
-    ok: bool
-    namespace: str | None = None
-    visibility: str | None = None
-    remote_provider: str = "huggingface"
-    message: str
+    csv_url: str
+    json_url: str
+    row_count: int
+    non_null_value_count: int
+    indicator_count: int
+    status: str

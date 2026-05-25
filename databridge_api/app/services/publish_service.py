@@ -1,54 +1,64 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
 import re
+import time
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import quote
 
 from sqlalchemy import delete
 import requests
 from requests.adapters import HTTPAdapter
-from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from urllib3.util.retry import Retry
 
-from app.config import HF_DATASET_VISIBILITY, REMOTE_PROVIDER
+from app.config import (
+    DATABRIDGE_EXPORT_TOKEN,
+    EXPORT_SCHEMA_MODE,
+    PUBLIC_API_BASE_URL,
+    REMOTE_PROVIDER,
+    get_source_indicator_limit,
+    get_source_label,
+    is_configured_secret,
+)
 from app.models import (
     Country,
+    ExportDataset,
+    ExportDatasetIndicator,
+    ExportLog,
     Indicator,
     IndicatorTopic,
-    PublishLog,
-    PublishedDataset,
-    PublishedDatasetVersion,
-    PublishedDatasetVersionIndicator,
     Source,
     Topic,
 )
 from app.schemas import PublishDatasetIn
-from app.services.hf_service import (
-    build_repo_id,
-    delete_remote_dataset,
-    ensure_dataset_repo,
-    get_hf_api,
-    get_manifest_url,
-    get_remote_dataset_url,
-    get_repo_file_url,
-    list_remote_datasets,
-    upload_dataset_artifacts,
-)
-
+from app.services.measure_service import enregistrer_mesure
 
 WORLD_BANK_DATA_API_BASE = os.getenv("WB_API_BASE", "https://api.worldbank.org/v2").rstrip("/")
 WORLD_BANK_DATA_TIMEOUT = int(os.getenv("WB_DATA_TIMEOUT", os.getenv("WB_API_TIMEOUT", "60")))
 WORLD_BANK_DATA_CONNECT_TIMEOUT = int(os.getenv("WB_DATA_CONNECT_TIMEOUT", os.getenv("WB_API_CONNECT_TIMEOUT", "15")))
 WORLD_BANK_DATA_PAGE_SIZE = max(200, int(os.getenv("WB_DATA_PAGE_SIZE", "2000")))
+PUBLIC_EXPORT_COLUMNS = ["Pays", "Indicateur", "Date", "Valeur", "Unite", "Source"]
+TECHNICAL_EXPORT_COLUMNS = [
+    "id_pays",
+    "code_pays",
+    "nom_pays",
+    "id_indicateur",
+    "code_indicateur",
+    "nom_indicateur",
+    "date",
+    "valeur",
+]
 
 
 class PublishError(Exception):
@@ -59,24 +69,28 @@ class ValidationError(PublishError):
     status_code = 400
 
 
-class RemotePublishError(PublishError):
-    status_code = 502
-
-
 class DataBuildError(PublishError):
     status_code = 502
 
 
+class ExportTokenError(PublishError):
+    status_code = 403
+
+
+class ExportTokenConfigError(PublishError):
+    status_code = 500
+
+
 @dataclass
-class PublishContext:
+class ExportContext:
     source: Source
     country: Country
     indicators: list[Indicator]
     topics: list[Topic]
-    dataset: PublishedDataset | None
+    dataset: ExportDataset | None
     slug: str
     version: int
-    remote_version: str
+    export_version: str
 
 
 @dataclass
@@ -87,90 +101,89 @@ class DatasetDataBuild:
     non_null_value_count: int
     missing_indicator_codes: list[str]
     columns: list[str]
+    indicator_measurements: list[dict[str, Any]] = field(default_factory=list)
+    csv_duration_seconds: float = 0.0
+    json_duration_seconds: float = 0.0
 
 
-def publish_dataset(db: Session, payload: PublishDatasetIn) -> dict[str, Any]:
+def generate_export_links(db: Session, payload: PublishDatasetIn) -> dict[str, Any]:
+    mesure_debut = time.perf_counter()
+    etapes: dict[str, float] = {}
     title = payload.title.strip()
     description = payload.description.strip()
+    _validate_dataset_business_rules(payload)
+    validation_debut = time.perf_counter()
     if not title:
         raise ValidationError("Le titre est obligatoire.")
+    etapes["validation_titre"] = round(time.perf_counter() - validation_debut, 4)
+    validation_debut = time.perf_counter()
     if not description:
         raise ValidationError("La description est obligatoire.")
+    etapes["validation_description"] = round(time.perf_counter() - validation_debut, 4)
+    validation_debut = time.perf_counter()
     if not payload.indicator_ids:
         raise ValidationError("Au moins un indicateur doit etre selectionne.")
+    etapes["validation_indicateurs"] = round(time.perf_counter() - validation_debut, 4)
 
+    validation_debut = time.perf_counter()
     start_date = _parse_date(payload.start_date, "start_date")
     end_date = _parse_date(payload.end_date, "end_date")
     if start_date > end_date:
         raise ValidationError("La date de debut doit etre inferieure ou egale a la date de fin.")
+    etapes["validation_dates"] = round(time.perf_counter() - validation_debut, 4)
 
+    contexte_debut = time.perf_counter()
     context = _load_publish_context(db, payload)
+    etapes["chargement_contexte"] = round(time.perf_counter() - contexte_debut, 4)
     now = _utc_now()
+    donnees_debut = time.perf_counter()
     data_build = _build_dataset_data(
         context=context,
         start_date=start_date,
         end_date=end_date,
     )
+    etapes["construction_donnees"] = round(time.perf_counter() - donnees_debut, 4)
 
+    manifeste_debut = time.perf_counter()
     manifest = _build_manifest(
         payload=payload,
         context=context,
         title=title,
         description=description,
         created_at=now,
-        published_at=now,
+        generated_at=now,
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
         data_build=data_build,
     )
     manifest_json = json.dumps(manifest, ensure_ascii=False, indent=2)
-    root_readme = _build_root_readme(manifest, context)
-    version_readme = _build_version_readme(manifest, context)
-    repo_id = build_repo_id(context.slug)
+    etapes["construction_manifeste"] = round(time.perf_counter() - manifeste_debut, 4)
+    liens_debut = time.perf_counter()
+    csv_url = _build_export_url(context.slug, "csv")
+    json_url = _build_export_url(context.slug, "json")
+    etapes["generation_liens"] = round(time.perf_counter() - liens_debut, 4)
 
-    artifacts = {
-        "README.md": root_readme,
-        "manifest.json": manifest_json,
-        "data/latest.csv": data_build.csv_text,
-        "data/latest.json": data_build.json_text,
-        f"versions/{context.remote_version}/README.md": version_readme,
-        f"versions/{context.remote_version}/manifest.json": manifest_json,
-        f"versions/{context.remote_version}/data.csv": data_build.csv_text,
-        f"versions/{context.remote_version}/data.json": data_build.json_text,
-    }
-
-    try:
-        api = get_hf_api()
-        ensure_dataset_repo(api, repo_id, HF_DATASET_VISIBILITY)
-        upload_dataset_artifacts(
-            api,
-            repo_id,
-            artifacts,
-            commit_message=f"Publication {context.remote_version} depuis Richat DataBridge",
-        )
-    except Exception as exc:
-        _log_failure(
-            db,
-            message=f"Echec de publication Hugging Face: {exc}",
-            remote_id=repo_id,
-            remote_version=context.remote_version,
-            dataset_id=context.dataset.id if context.dataset else None,
-        )
-        raise RemotePublishError(f"Echec de publication vers Hugging Face: {exc}") from exc
-
+    sauvegarde_debut = time.perf_counter()
     dataset = context.dataset
     if dataset is None:
-        dataset = PublishedDataset(
+        dataset = ExportDataset(
             slug=context.slug,
             title=title,
             description=description,
-            remote_provider=REMOTE_PROVIDER,
-            remote_id=repo_id,
-            visibility=HF_DATASET_VISIBILITY,
-            status="published",
+            source_id=context.source.id,
+            topic_id=payload.topic_id,
+            country_id=context.country.id,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            status="export_links_ready",
+            provider=REMOTE_PROVIDER,
+            csv_export_url=csv_url,
+            json_export_url=json_url,
             latest_version=context.version,
+            format=manifest["format"],
+            frequency=_manifest_get(manifest, "frequence", "frequency"),
+            build_json=manifest_json,
             created_at=now,
-            published_at=now,
             updated_at=now,
         )
         db.add(dataset)
@@ -185,67 +198,72 @@ def publish_dataset(db: Session, payload: PublishDatasetIn) -> dict[str, Any]:
         dataset.title = title
         dataset.description = description
         dataset.latest_version = context.version
-        dataset.visibility = HF_DATASET_VISIBILITY
-        dataset.status = "published"
-        dataset.published_at = now
+        dataset.source_id = context.source.id
+        dataset.topic_id = payload.topic_id
+        dataset.country_id = context.country.id
+        dataset.start_date = start_date.isoformat()
+        dataset.end_date = end_date.isoformat()
+        dataset.status = "export_links_ready"
+        dataset.provider = REMOTE_PROVIDER
+        dataset.csv_export_url = csv_url
+        dataset.json_export_url = json_url
+        dataset.format = manifest["format"]
+        dataset.frequency = _manifest_get(manifest, "frequence", "frequency")
+        dataset.build_json = manifest_json
         dataset.updated_at = now
         db.flush()
 
-    version = PublishedDatasetVersion(
-        dataset_id=dataset.id,
-        version=context.version,
-        remote_version=context.remote_version,
-        country_id=context.country.id,
-        start_date=start_date.isoformat(),
-        end_date=end_date.isoformat(),
-        format=manifest["format"],
-        frequency=_manifest_get(manifest, "frequence", "frequency"),
-        manifest_url=_manifest_get(manifest, "url_manifeste", "manifest_url"),
-        build_json=manifest_json,
-        created_at=now,
-        published_at=now,
+    db.execute(
+        delete(ExportDatasetIndicator).where(
+            ExportDatasetIndicator.export_dataset_id == dataset.id
+        )
     )
-    db.add(version)
-    db.flush()
-
     for indicator in context.indicators:
         db.add(
-            PublishedDatasetVersionIndicator(
-                dataset_version_id=version.id,
+            ExportDatasetIndicator(
+                export_dataset_id=dataset.id,
                 indicator_id=indicator.id,
             )
         )
 
     db.add(
-        PublishLog(
-            dataset_id=dataset.id,
-            version_id=version.id,
-            remote_provider=REMOTE_PROVIDER,
-            remote_id=repo_id,
-            remote_version=context.remote_version,
+        ExportLog(
+            export_dataset_id=dataset.id,
+            action="generation_liens",
+            row_count=data_build.row_count,
+            non_null_value_count=data_build.non_null_value_count,
             status="success",
-            message=f"Publication {context.remote_version} reussie.",
+            error_message=None,
+            duration_seconds=round(time.perf_counter() - mesure_debut, 4),
             created_at=now,
         )
     )
     db.commit()
+    etapes["sauvegarde_configuration_locale"] = round(time.perf_counter() - sauvegarde_debut, 4)
 
-    return {
-        "dataset_id": dataset.id,
-        "version_id": version.id,
+    result = {
         "slug": dataset.slug,
         "title": dataset.title,
         "description": dataset.description,
-        "version": version.version,
-        "remote_version": version.remote_version,
-        "remote_id": dataset.remote_id,
-        "remote_url": get_remote_dataset_url(dataset.remote_id),
-        "manifest_url": version.manifest_url,
-        "published_at": version.published_at,
-        "country": context.country,
-        "indicators": context.indicators,
-        "manifest": manifest,
+        "csv_url": csv_url,
+        "json_url": json_url,
+        "row_count": data_build.row_count,
+        "non_null_value_count": data_build.non_null_value_count,
+        "indicator_count": len(context.indicators),
+        "status": dataset.status,
     }
+    _enregistrer_mesure_dataset(
+        type_mesure="generation_liens_dataset",
+        payload=payload,
+        context=context,
+        start_date=start_date,
+        end_date=end_date,
+        data_build=data_build,
+        etapes=etapes,
+        duree_totale=time.perf_counter() - mesure_debut,
+        etat="Réussi",
+    )
+    return result
 
 
 
@@ -253,42 +271,69 @@ def preview_dataset(db: Session, payload: PublishDatasetIn, *, limit: int = 50) 
     """
     Builds the real dataset rows for preview only.
 
-    It validates the same payload used for publication.
-    It uses the same data-building logic as publish_dataset().
-    It does NOT upload to Hugging Face.
-    It does NOT write publication metadata.
+    It validates the same payload used for export generation.
+    It uses the same data-building logic as generate_export_links().
+    It does not write export metadata.
     """
 
+    mesure_debut = time.perf_counter()
+    etapes: dict[str, float] = {}
     title = payload.title.strip()
     description = payload.description.strip()
+    _validate_dataset_business_rules(payload)
 
+    validation_debut = time.perf_counter()
     if not title:
         raise ValidationError("Le titre est obligatoire.")
+    etapes["validation_titre"] = round(time.perf_counter() - validation_debut, 4)
+    validation_debut = time.perf_counter()
     if not description:
         raise ValidationError("La description est obligatoire.")
+    etapes["validation_description"] = round(time.perf_counter() - validation_debut, 4)
+    validation_debut = time.perf_counter()
     if not payload.indicator_ids:
         raise ValidationError("Au moins un indicateur doit etre selectionne.")
+    etapes["validation_indicateurs"] = round(time.perf_counter() - validation_debut, 4)
 
+    validation_debut = time.perf_counter()
     start_date = _parse_date(payload.start_date, "start_date")
     end_date = _parse_date(payload.end_date, "end_date")
 
     if start_date > end_date:
         raise ValidationError("La date de debut doit etre inferieure ou egale a la date de fin.")
+    etapes["validation_dates"] = round(time.perf_counter() - validation_debut, 4)
 
+    contexte_debut = time.perf_counter()
     context = _load_publish_context(db, payload)
+    etapes["chargement_contexte"] = round(time.perf_counter() - contexte_debut, 4)
 
+    donnees_debut = time.perf_counter()
     data_build = _build_dataset_data(
         context=context,
         start_date=start_date,
         end_date=end_date,
     )
+    etapes["construction_donnees"] = round(time.perf_counter() - donnees_debut, 4)
 
+    lecture_debut = time.perf_counter()
     try:
         all_rows = json.loads(data_build.json_text)
     except json.JSONDecodeError as exc:
         raise DataBuildError("Impossible de lire les donnees generees pour l'apercu.") from exc
+    etapes["lecture_json_apercu"] = round(time.perf_counter() - lecture_debut, 4)
 
     preview_rows = all_rows[:limit]
+    _enregistrer_mesure_dataset(
+        type_mesure="apercu_dataset",
+        payload=payload,
+        context=context,
+        start_date=start_date,
+        end_date=end_date,
+        data_build=data_build,
+        etapes=etapes,
+        duree_totale=time.perf_counter() - mesure_debut,
+        etat="Réussi",
+    )
 
     return {
         "columns": data_build.columns,
@@ -308,12 +353,7 @@ def generate_unique_slug(db: Session, title: str) -> str:
     suffix = 2
 
     while db.scalar(
-        select(PublishedDataset.id).where(
-            or_(
-                PublishedDataset.slug == candidate,
-                PublishedDataset.remote_id == build_repo_id(candidate),
-            )
-        )
+        select(ExportDataset.id).where(ExportDataset.slug == candidate)
     ) is not None:
         candidate = f"{base_slug}-{suffix}"
         suffix += 1
@@ -329,24 +369,17 @@ def slugify(value: str) -> str:
 
 
 def get_dashboard_datasets(db: Session) -> list[dict[str, Any]]:
-
-    try:
-       sync_datasets_with_huggingface(db)
-    except PublishError:
-       pass
-
     datasets = db.scalars(
-        select(PublishedDataset).order_by(PublishedDataset.published_at.desc())
+        select(ExportDataset)
+        .options(selectinload(ExportDataset.country))
+        .order_by(ExportDataset.updated_at.desc())
     ).all()
     rows: list[dict[str, Any]] = []
     for dataset in datasets:
-        version = _get_version_by_number(db, dataset.id, dataset.latest_version)
-        if version is None:
-            continue
         last_status = db.execute(
-            select(PublishLog.status)
-            .where(PublishLog.dataset_id == dataset.id)
-            .order_by(PublishLog.created_at.desc())
+            select(ExportLog.status)
+            .where(ExportLog.export_dataset_id == dataset.id)
+            .order_by(ExportLog.created_at.desc())
             .limit(1)
         ).scalar_one_or_none()
         rows.append(
@@ -355,131 +388,83 @@ def get_dashboard_datasets(db: Session) -> list[dict[str, Any]]:
                 "slug": dataset.slug,
                 "title": dataset.title,
                 "description": dataset.description,
-                "country": version.country,
+                "country": dataset.country,
                 "latest_version": dataset.latest_version,
-                "published_at": dataset.published_at,
-                "remote_provider": dataset.remote_provider,
-                "remote_id": dataset.remote_id,
-                "remote_url": get_remote_dataset_url(dataset.remote_id),
-                "last_publish_status": last_status,
+                "updated_at": dataset.updated_at,
+                "provider": dataset.provider,
+                "export_id": _build_export_id(dataset.slug),
+                "csv_url": dataset.csv_export_url,
+                "json_url": dataset.json_export_url,
+                "last_export_status": last_status,
             }
         )
     return rows
 
-def _delete_local_dataset_records(db: Session, dataset: PublishedDataset) -> None:
+def _delete_local_dataset_records(db: Session, dataset: ExportDataset) -> None:
     """
-    Deletes a published dataset mirror from local SQLite.
+    Deletes a local export configuration from SQLite.
 
     We delete manually because the current SQLAlchemy relationships do not define
     cascade delete behavior.
     """
 
-    versions = db.scalars(
-        select(PublishedDatasetVersion).where(
-            PublishedDatasetVersion.dataset_id == dataset.id
-        )
-    ).all()
-
-    version_ids = [version.id for version in versions]
-
-    if version_ids:
-        db.execute(
-            delete(PublishedDatasetVersionIndicator).where(
-                PublishedDatasetVersionIndicator.dataset_version_id.in_(version_ids)
-            )
-        )
-
-        db.execute(
-            delete(PublishLog).where(
-                PublishLog.version_id.in_(version_ids)
-            )
-        )
-
     db.execute(
-        delete(PublishLog).where(
-            PublishLog.dataset_id == dataset.id
+        delete(ExportDatasetIndicator).where(
+            ExportDatasetIndicator.export_dataset_id == dataset.id
         )
     )
-
     db.execute(
-        delete(PublishedDatasetVersion).where(
-            PublishedDatasetVersion.dataset_id == dataset.id
+        delete(ExportLog).where(
+            ExportLog.export_dataset_id == dataset.id
         )
     )
 
     db.delete(dataset)
 
 
-def sync_datasets_with_huggingface(db: Session) -> dict[str, Any]:
-    """
-    Synchronizes local published dataset mirror with Hugging Face.
-
-    If a dataset exists locally but its repo no longer exists on Hugging Face,
-    the local mirror is removed.
-    """
-
-    try:
-        remote_ids = set(list_remote_datasets())
-    except Exception as exc:
-        raise RemotePublishError(
-            f"Impossible de synchroniser avec Hugging Face: {exc}"
-        ) from exc
-
-    local_datasets = db.scalars(select(PublishedDataset)).all()
-
-    removed: list[str] = []
-    kept: list[str] = []
-
-    for dataset in local_datasets:
-        if dataset.remote_id not in remote_ids:
-            removed.append(dataset.slug)
-            _delete_local_dataset_records(db, dataset)
-        else:
-            kept.append(dataset.slug)
-
-    db.commit()
-
+def check_export_mode(db: Session) -> dict[str, Any]:
+    local_datasets = db.scalars(select(ExportDataset)).all()
     return {
-        "removed_count": len(removed),
-        "kept_count": len(kept),
-        "removed": removed,
-        "kept": kept,
+        "ok": True,
+        "provider": REMOTE_PROVIDER,
+        "dataset_count": len(local_datasets),
+        "message": "Mode API d'export Opendatasoft actif. Aucune synchronisation externe n'est necessaire.",
     }
 
 
-def delete_published_dataset(db: Session, slug: str) -> dict[str, Any]:
+def delete_export_dataset(db: Session, slug: str) -> dict[str, Any]:
     """
-    Deletes a dataset from Hugging Face and removes its local mirror.
+    Deletes the local export configuration.
     """
 
     dataset = db.scalar(
-        select(PublishedDataset).where(PublishedDataset.slug == slug)
+        select(ExportDataset).where(ExportDataset.slug == slug)
     )
 
     if dataset is None:
         raise ValidationError(f"Dataset '{slug}' introuvable.")
-
-    remote_id = dataset.remote_id
-
-    try:
-        delete_remote_dataset(remote_id)
-    except Exception as exc:
-        raise RemotePublishError(
-            f"Impossible de supprimer le dataset sur Hugging Face: {exc}"
-        ) from exc
 
     _delete_local_dataset_records(db, dataset)
     db.commit()
 
     return {
         "slug": slug,
-        "remote_id": remote_id,
         "deleted": True,
+        "message": "Configuration d'export locale supprimee.",
     }
 
 
 def get_dataset_detail(db: Session, slug: str) -> dict[str, Any] | None:
-    dataset = db.scalar(select(PublishedDataset).where(PublishedDataset.slug == slug))
+    dataset = db.scalar(
+        select(ExportDataset)
+        .options(
+            selectinload(ExportDataset.country),
+            selectinload(ExportDataset.indicator_links)
+            .selectinload(ExportDatasetIndicator.indicator)
+            .selectinload(Indicator.topic_links),
+        )
+        .where(ExportDataset.slug == slug)
+    )
     if dataset is None:
         return None
 
@@ -496,14 +481,13 @@ def get_dataset_detail(db: Session, slug: str) -> dict[str, Any] | None:
         "slug": dataset.slug,
         "title": dataset.title,
         "description": dataset.description,
-        "remote_provider": dataset.remote_provider,
-        "remote_id": dataset.remote_id,
-        "remote_url": get_remote_dataset_url(dataset.remote_id),
-        "visibility": dataset.visibility,
+        "provider": dataset.provider,
+        "export_id": _build_export_id(dataset.slug),
+        "csv_url": dataset.csv_export_url,
+        "json_url": dataset.json_export_url,
         "status": dataset.status,
         "latest_version": dataset.latest_version,
         "created_at": dataset.created_at,
-        "published_at": dataset.published_at,
         "updated_at": dataset.updated_at,
         "latest_version_detail": latest_version,
         "versions": versions,
@@ -511,22 +495,20 @@ def get_dataset_detail(db: Session, slug: str) -> dict[str, Any] | None:
 
 
 def list_dataset_versions(db: Session, slug: str) -> list[dict[str, Any]]:
-    dataset = db.scalar(select(PublishedDataset).where(PublishedDataset.slug == slug))
+    dataset = db.scalar(
+        select(ExportDataset)
+        .options(
+            selectinload(ExportDataset.country),
+            selectinload(ExportDataset.indicator_links)
+            .selectinload(ExportDatasetIndicator.indicator)
+            .selectinload(Indicator.topic_links),
+        )
+        .where(ExportDataset.slug == slug)
+    )
     if dataset is None:
         return []
 
-    versions = db.scalars(
-        select(PublishedDatasetVersion)
-        .options(
-            selectinload(PublishedDatasetVersion.country),
-            selectinload(PublishedDatasetVersion.indicator_links)
-            .selectinload(PublishedDatasetVersionIndicator.indicator)
-            .selectinload(Indicator.topic_links),
-        )
-        .where(PublishedDatasetVersion.dataset_id == dataset.id)
-        .order_by(PublishedDatasetVersion.version.desc())
-    ).all()
-    return [_serialize_version(version) for version in versions]
+    return [_serialize_export_dataset(dataset)]
 
 
 def get_dataset_version_data_preview(
@@ -536,33 +518,231 @@ def get_dataset_version_data_preview(
     *,
     limit: int = 25,
 ) -> dict[str, Any] | None:
-    dataset = db.scalar(select(PublishedDataset).where(PublishedDataset.slug == slug))
+    dataset = db.scalar(
+        select(ExportDataset)
+        .options(
+            selectinload(ExportDataset.country),
+            selectinload(ExportDataset.indicator_links)
+            .selectinload(ExportDatasetIndicator.indicator)
+            .selectinload(Indicator.topic_links),
+        )
+        .where(ExportDataset.slug == slug)
+    )
     if dataset is None:
         return None
 
-    version = db.scalar(
-        select(PublishedDatasetVersion).where(
-            PublishedDatasetVersion.dataset_id == dataset.id,
-            PublishedDatasetVersion.version == version_number,
-        )
-    )
-    if version is None:
+    if version_number != dataset.latest_version:
         return None
 
-    manifest = json.loads(version.build_json)
-    data_url = _extract_version_data_url(manifest)
-    if not data_url:
-        raise RemotePublishError("Aucun fichier de donnees n'est reference pour cette version.")
     try:
-        return _fetch_remote_csv_preview(data_url, limit=limit)
-    except requests.RequestException as exc:
-        raise RemotePublishError(_format_remote_preview_error(exc)) from exc
+        manifest, data_build = _build_saved_export_data(db, dataset)
+        rows = json.loads(data_build.json_text)[:limit]
+    except json.JSONDecodeError as exc:
+        raise DataBuildError("Impossible de lire les donnees generees pour l'apercu.") from exc
+
+    return {
+        "data_url": dataset.csv_export_url,
+        "columns": data_build.columns,
+        "rows": rows,
+        "preview_count": len(rows),
+        "row_count": data_build.row_count,
+        "non_null_value_count": data_build.non_null_value_count,
+        "missing_indicator_codes": data_build.missing_indicator_codes,
+        "manifest": manifest,
+    }
 
 
-def _load_publish_context(db: Session, payload: PublishDatasetIn) -> PublishContext:
+def get_export_dataset_build(db: Session, slug: str) -> dict[str, Any] | None:
+    dataset = db.scalar(
+        select(ExportDataset)
+        .options(
+            selectinload(ExportDataset.country),
+            selectinload(ExportDataset.indicator_links)
+            .selectinload(ExportDatasetIndicator.indicator)
+            .selectinload(Indicator.topic_links),
+        )
+        .where(ExportDataset.slug == slug)
+    )
+    if dataset is None:
+        return None
+
+    manifest, data_build = _build_saved_export_data(db, dataset)
+    return {
+        "dataset": dataset,
+        "manifest": manifest,
+        "data_build": data_build,
+    }
+
+
+def export_dataset_csv(db: Session, slug: str, token: str | None) -> str:
+    _validate_export_token(slug, token)
+    export_build = get_export_dataset_build(db, slug)
+    if export_build is None:
+        raise ValidationError(f"Dataset '{slug}' introuvable.")
+    return export_build["data_build"].csv_text
+
+
+def export_dataset_json(db: Session, slug: str, token: str | None) -> list[dict[str, Any]]:
+    _validate_export_token(slug, token)
+    export_build = get_export_dataset_build(db, slug)
+    if export_build is None:
+        raise ValidationError(f"Dataset '{slug}' introuvable.")
+    try:
+        rows = json.loads(export_build["data_build"].json_text)
+    except json.JSONDecodeError as exc:
+        raise DataBuildError("Impossible de lire les donnees JSON exportees.") from exc
+    return rows
+
+
+def record_export_access(
+    db: Session,
+    *,
+    slug: str,
+    export_format: str,
+    request: Any = None,
+    status: str,
+    error_message: str | None = None,
+) -> None:
+    """Persist a sanitized export access trace without storing URL tokens."""
+
+    try:
+        dataset_id = db.scalar(select(ExportDataset.id).where(ExportDataset.slug == slug))
+        headers = getattr(request, "headers", {}) or {}
+        forwarded_for = headers.get("x-forwarded-for", "") if hasattr(headers, "get") else ""
+        client_ip = forwarded_for.split(",", 1)[0].strip()
+        if not client_ip and getattr(request, "client", None) is not None:
+            client_ip = getattr(request.client, "host", "")
+        payload = {
+            "slug": slug,
+            "format": export_format,
+            "ip": client_ip,
+            "user_agent": headers.get("user-agent", "") if hasattr(headers, "get") else "",
+        }
+        if error_message:
+            payload["error"] = error_message
+        db.add(
+            ExportLog(
+                export_dataset_id=dataset_id,
+                action=f"access_export_{export_format}",
+                row_count=None,
+                non_null_value_count=None,
+                status=status,
+                error_message=json.dumps(payload, ensure_ascii=False),
+                duration_seconds=None,
+                created_at=_utc_now(),
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _build_saved_export_data(
+    db: Session,
+    dataset: ExportDataset,
+) -> tuple[dict[str, Any], DatasetDataBuild]:
+    try:
+        manifest = json.loads(dataset.build_json)
+    except json.JSONDecodeError as exc:
+        raise DataBuildError("La configuration sauvegardee du dataset est illisible.") from exc
+
+    source = dataset.source or db.scalar(select(Source).where(Source.id == dataset.source_id))
+    if source is None:
+        raise ValidationError("Source introuvable pour cet export.")
+
+    country = dataset.country or db.scalar(
+        select(Country).where(Country.id == dataset.country_id, Country.enabled.is_(True))
+    )
+    if country is None:
+        raise ValidationError("Le pays sauvegarde est invalide ou desactive.")
+
+    indicator_ids = [
+        row[0]
+        for row in db.execute(
+            select(ExportDatasetIndicator.indicator_id).where(
+                ExportDatasetIndicator.export_dataset_id == dataset.id
+            )
+        ).all()
+    ]
+
+    if not indicator_ids:
+        raise ValidationError("Aucun indicateur sauvegarde pour cet export.")
+
+    indicators = db.scalars(
+        select(Indicator)
+        .options(selectinload(Indicator.topic_links).selectinload(IndicatorTopic.topic))
+        .where(Indicator.id.in_(indicator_ids))
+    ).all()
+    indicators_by_id = {indicator.id: indicator for indicator in indicators}
+    missing_ids = [identifier for identifier in indicator_ids if identifier not in indicators_by_id]
+    if missing_ids:
+        raise ValidationError(f"Indicateurs sauvegardes introuvables: {', '.join(map(str, missing_ids))}.")
+
+    ordered_indicators = [indicators_by_id[identifier] for identifier in indicator_ids]
+    foreign_source_ids = {indicator.source_id for indicator in ordered_indicators if indicator.source_id != source.id}
+    if foreign_source_ids:
+        raise ValidationError("La configuration sauvegardee contient des indicateurs d'une autre source.")
+
+    topic_map: dict[int, Topic] = {}
+    if dataset.topic is not None:
+        topic_map[dataset.topic.id] = dataset.topic
+    for indicator in ordered_indicators:
+        for link in indicator.topic_links:
+            if link.topic is not None:
+                topic_map[link.topic.id] = link.topic
+
+    context = ExportContext(
+        source=source,
+        country=country,
+        indicators=ordered_indicators,
+        topics=sorted(topic_map.values(), key=lambda topic: topic.name.lower()),
+        dataset=dataset,
+        slug=dataset.slug,
+        version=dataset.latest_version,
+        export_version=f"v{dataset.latest_version}",
+    )
+    start_date = _parse_date(
+        _manifest_get(manifest, "date_debut", "start_date", default=dataset.start_date),
+        "start_date",
+    )
+    end_date = _parse_date(
+        _manifest_get(manifest, "date_fin", "end_date", default=dataset.end_date),
+        "end_date",
+    )
+    if start_date > end_date:
+        raise ValidationError("La plage de dates sauvegardee est invalide.")
+
+    return manifest, _build_dataset_data(
+        context=context,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def _validate_dataset_business_rules(payload: PublishDatasetIn) -> None:
+    if payload.topic_id is None:
+        raise ValidationError("Le thème est obligatoire pour créer un jeu de données.")
+
+    source_code = (payload.source_code or "").strip().upper()
+    max_indicators = get_source_indicator_limit(source_code)
+    selected_count = len(payload.indicator_ids or [])
+    if selected_count > max_indicators:
+        source_label = get_source_label(source_code)
+        raise ValidationError(
+            f"La source {source_label} autorise au maximum {max_indicators} indicateurs par dataset."
+        )
+
+
+def _load_publish_context(db: Session, payload: PublishDatasetIn) -> ExportContext:
     source = db.scalar(select(Source).where(Source.code == payload.source_code.upper()))
     if source is None:
         raise ValidationError(f"Source '{payload.source_code}' introuvable.")
+
+    selected_topic = db.scalar(
+        select(Topic).where(Topic.id == payload.topic_id, Topic.source_id == source.id)
+    )
+    if selected_topic is None:
+        raise ValidationError("Le thème sélectionné est invalide pour cette source.")
 
     country = db.scalar(
         select(Country).where(Country.id == payload.country_id, Country.enabled.is_(True))
@@ -585,7 +765,7 @@ def _load_publish_context(db: Session, payload: PublishDatasetIn) -> PublishCont
     if foreign_source_ids:
         raise ValidationError("Tous les indicateurs doivent appartenir a la source selectionnee.")
 
-    topic_map: dict[int, Topic] = {}
+    topic_map: dict[int, Topic] = {selected_topic.id: selected_topic}
     for indicator in ordered_indicators:
         for link in indicator.topic_links:
             if link.topic is not None:
@@ -594,7 +774,7 @@ def _load_publish_context(db: Session, payload: PublishDatasetIn) -> PublishCont
     dataset = None
     slug = payload.existing_slug.strip() if payload.existing_slug else None
     if slug:
-        dataset = db.scalar(select(PublishedDataset).where(PublishedDataset.slug == slug))
+        dataset = db.scalar(select(ExportDataset).where(ExportDataset.slug == slug))
         if dataset is None:
             raise ValidationError(f"Dataset '{slug}' introuvable pour creer une nouvelle version.")
         version_number = dataset.latest_version + 1
@@ -602,7 +782,7 @@ def _load_publish_context(db: Session, payload: PublishDatasetIn) -> PublishCont
         slug = generate_unique_slug(db, title=payload.title)
         version_number = 1
 
-    return PublishContext(
+    return ExportContext(
         source=source,
         country=country,
         indicators=ordered_indicators,
@@ -610,171 +790,148 @@ def _load_publish_context(db: Session, payload: PublishDatasetIn) -> PublishCont
         dataset=dataset,
         slug=slug,
         version=version_number,
-        remote_version=f"v{version_number}",
+        export_version=f"v{version_number}",
     )
 
 
 def _build_manifest(
     *,
     payload: PublishDatasetIn,
-    context: PublishContext,
+    context: ExportContext,
     title: str,
     description: str,
     created_at: str,
-    published_at: str,
+    generated_at: str,
     start_date: str,
     end_date: str,
     data_build: DatasetDataBuild,
 ) -> dict[str, Any]:
-    repo_id = build_repo_id(context.slug)
+    export_id = _build_export_id(context.slug)
+    csv_url = _build_export_url(context.slug, "csv")
+    json_url = _build_export_url(context.slug, "json")
     indicator_codes = [indicator.code for indicator in context.indicators]
     source_ids = sorted({indicator.source_id for indicator in context.indicators})
     source_codes = sorted({context.source.code for _ in context.indicators})
     topic_ids = sorted({topic.id for topic in context.topics})
     periodicities = [indicator.periodicity for indicator in context.indicators if indicator.periodicity]
     frequency = payload.frequency or _derive_frequency(periodicities)
-    csv_path = f"versions/{context.remote_version}/data.csv"
-    json_path = f"versions/{context.remote_version}/data.json"
+    csv_path = f"/api/opendata/exports/{context.slug}.csv"
+    json_path = f"/api/opendata/exports/{context.slug}.json"
 
     return {
         "titre": title,
+        "title": title,
         "description": description,
         "slug": context.slug,
-        "fournisseur_distant": REMOTE_PROVIDER,
-        "identifiant_distant": repo_id,
-        "url_distante": get_remote_dataset_url(repo_id),
-        "url_manifeste": get_manifest_url(repo_id, context.remote_version),
+        "fournisseur_export": REMOTE_PROVIDER,
+        "provider": REMOTE_PROVIDER,
+        "identifiant_export": export_id,
+        "export_id": export_id,
+        "csv_url": csv_url,
+        "json_url": json_url,
+        "export_token_required": True,
         "version": context.version,
-        "version_distante": context.remote_version,
+        "version_export": context.export_version,
+        "export_version": context.export_version,
         "id_pays": context.country.id,
+        "country_id": context.country.id,
         "code_pays": context.country.wb_code,
+        "country_code": context.country.wb_code,
         "code_pays_iso3": context.country.code_iso3,
+        "country_code_iso3": context.country.code_iso3,
         "nom_pays": context.country.name,
+        "country_name": context.country.name,
         "ids_sources": source_ids,
+        "source_ids": source_ids,
         "codes_sources": source_codes,
+        "source_codes": source_codes,
         "ids_themes": topic_ids,
+        "topic_ids": topic_ids,
         "ids_indicateurs": [indicator.id for indicator in context.indicators],
+        "indicator_ids": [indicator.id for indicator in context.indicators],
         "codes_indicateurs": indicator_codes,
+        "indicator_codes": indicator_codes,
         "date_debut": start_date,
+        "start_date": start_date,
         "date_fin": end_date,
+        "end_date": end_date,
         "format": payload.format or "csv",
+        "mode_schema_export": EXPORT_SCHEMA_MODE,
+        "export_schema_mode": EXPORT_SCHEMA_MODE,
         "frequence": frequency,
+        "frequency": frequency,
         "nombre_lignes": data_build.row_count,
+        "rows_count": data_build.row_count,
         "nombre_valeurs_non_nulles": data_build.non_null_value_count,
+        "non_null_value_count": data_build.non_null_value_count,
         "codes_indicateurs_manquants": data_build.missing_indicator_codes,
+        "missing_indicator_codes": data_build.missing_indicator_codes,
         "colonnes_donnees": data_build.columns,
+        "data_columns": data_build.columns,
         "fichiers_donnees": [
             {
                 "type": "csv",
                 "chemin": csv_path,
-                "url": get_repo_file_url(repo_id, csv_path),
+                "url": csv_url,
             },
             {
                 "type": "json",
                 "chemin": json_path,
-                "url": get_repo_file_url(repo_id, json_path),
+                "url": json_url,
             },
         ],
-        "url_donnees": get_repo_file_url(repo_id, csv_path),
+        "data_files": [
+            {
+                "kind": "csv",
+                "path": csv_path,
+                "url": csv_url,
+            },
+            {
+                "kind": "json",
+                "path": json_path,
+                "url": json_url,
+            },
+        ],
+        "url_donnees": csv_url,
+        "data_url": csv_url,
         "cree_le": created_at,
-        "publie_le": published_at,
+        "created_at": created_at,
+        "genere_le": generated_at,
+        "generated_at": generated_at,
     }
-
-
-def _build_root_readme(manifest: dict[str, Any], context: PublishContext) -> str:
-    topic_names = ", ".join(topic.name for topic in context.topics) or "Sans theme"
-    indicator_lines = _format_indicator_lines(context.indicators)
-    return f"""---
-language:
-- fr
-pretty_name: {_manifest_get(manifest, "titre", "title")}
-configs:
-- config_name: default
-  data_files:
-  - split: train
-    path: data/latest.csv
----
-
-# {_manifest_get(manifest, "titre", "title")}
-
-## Description
-{_manifest_get(manifest, "description")}
-
-## Resume
-- Slug : `{_manifest_get(manifest, "slug")}`
-- Version courante : `{_manifest_get(manifest, "version_distante", "remote_version")}`
-- Pays : {context.country.name} (`{context.country.code_iso3}`)
-- Source : {context.source.name}
-- Themes : {topic_names}
-- Periode : {_manifest_get(manifest, "date_debut", "start_date")} a {_manifest_get(manifest, "date_fin", "end_date")}
-- Nombre d'indicateurs : {len(context.indicators)}
-- Format : {_manifest_get(manifest, "format")}
-- Frequence : {_manifest_get(manifest, "frequence", "frequency")}
-- Lignes de donnees : {_manifest_get(manifest, "nombre_lignes", "rows_count")}
-- Valeurs non nulles : {_manifest_get(manifest, "nombre_valeurs_non_nulles", "non_null_value_count")}
-
-## Indicateurs
-{indicator_lines}
-
-## Fichiers de donnees
-- CSV courant : `data/latest.csv`
-- JSON courant : `data/latest.json`
-
-## Note
-Ce depot stocke les metadonnees de publication et les donnees reelles construites par Richat DataBridge.
-"""
-
-
-def _build_version_readme(manifest: dict[str, Any], context: PublishContext) -> str:
-    return f"""# {_manifest_get(manifest, "titre", "title")} - {_manifest_get(manifest, "version_distante", "remote_version")}
-
-## Version publiee
-- Version : `{_manifest_get(manifest, "version_distante", "remote_version")}`
-- Pays : {context.country.name} (`{context.country.wb_code}`)
-- Periode : {_manifest_get(manifest, "date_debut", "start_date")} a {_manifest_get(manifest, "date_fin", "end_date")}
-- Nombre d'indicateurs : {len(context.indicators)}
-- Lignes de donnees : {_manifest_get(manifest, "nombre_lignes", "rows_count")}
-
-## Description
-{_manifest_get(manifest, "description")}
-
-## Indicateurs
-{_format_indicator_lines(context.indicators)}
-
-## Donnees
-- CSV : `versions/{_manifest_get(manifest, "version_distante", "remote_version")}/data.csv`
-- JSON : `versions/{_manifest_get(manifest, "version_distante", "remote_version")}/data.json`
-
-## Note
-Ce dossier versionne contient les metadonnees et les donnees reelles publiees par Richat DataBridge.
-"""
-
-
-def _format_indicator_lines(indicators: list[Indicator], limit: int = 25) -> str:
-    visible = indicators[:limit]
-    lines = [f"- `{indicator.code}` - {indicator.name}" for indicator in visible]
-    if len(indicators) > limit:
-        lines.append(f"- ... et {len(indicators) - limit} autre(s) indicateur(s).")
-    return "\n".join(lines) if lines else "- Aucun indicateur."
 
 
 def _build_dataset_data(
     *,
-    context: PublishContext,
+    context: ExportContext,
     start_date: date,
     end_date: date,
 ) -> DatasetDataBuild:
     session = _build_world_bank_session()
     rows: list[dict[str, Any]] = []
     missing_indicator_codes: list[str] = []
+    indicator_measurements: list[dict[str, Any]] = []
 
     for indicator in context.indicators:
+        indicateur_debut = time.perf_counter()
         indicator_rows = _fetch_indicator_rows(
             session=session,
+            source=context.source,
             country=context.country,
             indicator=indicator,
             start_date=start_date,
             end_date=end_date,
+        )
+        indicateur_duree = time.perf_counter() - indicateur_debut
+        indicator_measurements.append(
+            {
+                "code_indicateur": indicator.code,
+                "nom_indicateur": indicator.name,
+                "duree_secondes": round(indicateur_duree, 4),
+                "nombre_lignes": len(indicator_rows),
+                "valeurs_non_nulles": sum(1 for row in indicator_rows if row.get("valeur") is not None),
+                "etat": "Réussi" if indicator_rows else "Sans données",
+            }
         )
         if not indicator_rows:
             missing_indicator_codes.append(indicator.code)
@@ -785,21 +942,14 @@ def _build_dataset_data(
             "Aucune donnee reelle n'a ete trouvee pour cette combinaison pays, indicateurs et plage de dates."
         )
 
-    columns = [
-        "id_pays",
-        "code_pays",
-        "nom_pays",
-        "id_indicateur",
-        "code_indicateur",
-        "nom_indicateur",
-        "date",
-        "valeur",
-        "unite",
-        "statut_observation",
-        "decimales",
-    ]
-    csv_text = _rows_to_csv(rows, columns)
-    json_text = json.dumps(rows, ensure_ascii=False, indent=2)
+    columns = _export_columns()
+    export_rows = _project_export_rows(rows, columns)
+    csv_debut = time.perf_counter()
+    csv_text = _rows_to_csv(export_rows, columns)
+    csv_duration_seconds = round(time.perf_counter() - csv_debut, 4)
+    json_debut = time.perf_counter()
+    json_text = json.dumps(export_rows, ensure_ascii=False, indent=2)
+    json_duration_seconds = round(time.perf_counter() - json_debut, 4)
     non_null_value_count = sum(1 for row in rows if row["valeur"] is not None)
     return DatasetDataBuild(
         csv_text=csv_text,
@@ -808,6 +958,9 @@ def _build_dataset_data(
         non_null_value_count=non_null_value_count,
         missing_indicator_codes=missing_indicator_codes,
         columns=columns,
+        indicator_measurements=indicator_measurements,
+        csv_duration_seconds=csv_duration_seconds,
+        json_duration_seconds=json_duration_seconds,
     )
 
 
@@ -826,13 +979,58 @@ def _build_world_bank_session() -> requests.Session:
     adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    session.headers.update({"User-Agent": "RichatDataBridge/2.0 publish"})
+    session.headers.update({"User-Agent": "RichatDataBridge/2.0 export"})
     return session
+
+
+def _enregistrer_mesure_dataset(
+    *,
+    type_mesure: str,
+    payload: PublishDatasetIn,
+    context: ExportContext,
+    start_date: date,
+    end_date: date,
+    data_build: DatasetDataBuild,
+    etapes: dict[str, float],
+    duree_totale: float,
+    etat: str,
+) -> None:
+    nombre_indicateurs = len(context.indicators)
+    nombre_annees = max(0, end_date.year - start_date.year + 1)
+    durees_indicateurs = [
+        float(item.get("duree_secondes") or 0)
+        for item in data_build.indicator_measurements
+    ]
+    enregistrer_mesure(
+        "datasets",
+        {
+            "type": type_mesure,
+            "etat": etat,
+            "pays": context.country.name,
+            "code_pays": context.country.wb_code,
+            "nombre_indicateurs": nombre_indicateurs,
+            "annee_debut": start_date.year,
+            "annee_fin": end_date.year,
+            "nombre_lignes_theorique": nombre_indicateurs * nombre_annees,
+            "nombre_lignes": data_build.row_count,
+            "valeurs_non_nulles": data_build.non_null_value_count,
+            "indicateurs_sans_donnees": data_build.missing_indicator_codes,
+            "duree_totale_secondes": round(duree_totale, 4),
+            "duree_moyenne_par_indicateur": round(sum(durees_indicateurs) / len(durees_indicateurs), 4)
+            if durees_indicateurs
+            else 0,
+            "duree_creation_csv_secondes": data_build.csv_duration_seconds,
+            "duree_creation_json_secondes": data_build.json_duration_seconds,
+            "etapes": etapes,
+            "appels_banque_mondiale": data_build.indicator_measurements,
+        },
+    )
 
 
 def _fetch_indicator_rows(
     *,
     session: requests.Session,
+    source: Source,
     country: Country,
     indicator: Indicator,
     start_date: date,
@@ -849,6 +1047,12 @@ def _fetch_indicator_rows(
     for item in payload:
         rows.append(
             {
+                "Pays": country.name,
+                "Indicateur": indicator.name,
+                "Date": str(item.get("date") or ""),
+                "Valeur": item.get("value"),
+                "Unite": indicator.unit or "",
+                "Source": source.name,
                 "id_pays": country.id,
                 "code_pays": country.wb_code,
                 "nom_pays": country.name,
@@ -857,12 +1061,22 @@ def _fetch_indicator_rows(
                 "nom_indicateur": indicator.name,
                 "date": str(item.get("date") or ""),
                 "valeur": item.get("value"),
-                "unite": indicator.unit,
-                "statut_observation": item.get("obs_status") or None,
-                "decimales": item.get("decimal"),
             }
         )
     return rows
+
+
+def _export_columns() -> list[str]:
+    if EXPORT_SCHEMA_MODE == "technical_debug":
+        return TECHNICAL_EXPORT_COLUMNS
+    return PUBLIC_EXPORT_COLUMNS
+
+
+def _project_export_rows(rows: list[dict[str, Any]], columns: list[str]) -> list[dict[str, Any]]:
+    return [
+        {column: row.get(column) for column in columns}
+        for row in rows
+    ]
 
 
 def _fetch_world_bank_paginated(
@@ -904,22 +1118,38 @@ def _rows_to_csv(rows: list[dict[str, Any]], columns: list[str]) -> str:
     return buffer.getvalue()
 
 
-def _extract_version_data_url(manifest: dict[str, Any]) -> str | None:
-    data_url = manifest.get("url_donnees") or manifest.get("data_url")
-    if isinstance(data_url, str) and data_url.strip():
-        return data_url.strip()
+def _build_export_url(slug: str, extension: str) -> str:
+    signed_token = _build_export_token(slug)
+    safe_slug = quote(slug.strip(), safe="")
+    safe_token = quote(signed_token, safe="")
+    return f"{PUBLIC_API_BASE_URL}/api/opendata/exports/{safe_slug}.{extension}?token={safe_token}"
 
-    data_files = manifest.get("fichiers_donnees") or manifest.get("data_files")
-    if not isinstance(data_files, list):
-        return None
 
-    for item in data_files:
-        item_type = item.get("type") if isinstance(item, dict) else None
-        if not item_type and isinstance(item, dict):
-            item_type = item.get("kind")
-        if isinstance(item, dict) and item_type == "csv" and item.get("url"):
-            return str(item["url"]).strip()
-    return None
+def _build_export_id(slug: str) -> str:
+    return f"{REMOTE_PROVIDER}:{slug}"
+
+
+def _validate_export_token(slug: str, token: str | None) -> None:
+    expected_token = _build_export_token(slug)
+    if not token:
+        raise ExportTokenError("Token d’export manquant.")
+    if not hmac.compare_digest(str(token), expected_token):
+        raise ExportTokenError("Token d’export invalide.")
+
+
+def _build_export_token(slug: str) -> str:
+    configured_token = _configured_export_token()
+    return hmac.new(
+        configured_token.encode("utf-8"),
+        slug.strip().encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _configured_export_token() -> str:
+    if not is_configured_secret(DATABRIDGE_EXPORT_TOKEN):
+        raise ExportTokenConfigError("Configuration de sécurité incomplète.")
+    return DATABRIDGE_EXPORT_TOKEN
 
 
 def _manifest_get(manifest: dict[str, Any], *keys: str, default: Any = None) -> Any:
@@ -927,39 +1157,6 @@ def _manifest_get(manifest: dict[str, Any], *keys: str, default: Any = None) -> 
         if key in manifest:
             return manifest[key]
     return default
-
-
-def _fetch_remote_csv_preview(data_url: str, *, limit: int) -> dict[str, Any]:
-    response = requests.get(
-        data_url,
-        timeout=(WORLD_BANK_DATA_CONNECT_TIMEOUT, WORLD_BANK_DATA_TIMEOUT),
-        headers={"User-Agent": "RichatDataBridge/2.0 preview"},
-    )
-    response.raise_for_status()
-
-    reader = csv.DictReader(io.StringIO(response.text))
-    rows: list[dict[str, Any]] = []
-    for index, row in enumerate(reader):
-        if index >= limit:
-            break
-        rows.append(dict(row))
-
-    return {
-        "data_url": data_url,
-        "columns": list(reader.fieldnames or []),
-        "rows": rows,
-        "preview_count": len(rows),
-    }
-
-
-def _format_remote_preview_error(exc: Exception) -> str:
-    message = str(exc)
-    lowered = message.lower()
-    if "getaddrinfo failed" in lowered:
-        return "Impossible de charger l'apercu : le serveur distant est introuvable pour le moment."
-    if "timed out" in lowered or "timeout" in lowered:
-        return "Impossible de charger l'apercu : le serveur distant a mis trop de temps a repondre."
-    return f"Impossible de charger l'apercu distant : {message}"
 
 
 def _derive_frequency(periodicities: list[str]) -> str:
@@ -982,55 +1179,24 @@ def _utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _serialize_version(version: PublishedDatasetVersion) -> dict[str, Any]:
-    manifest = json.loads(version.build_json)
-    indicators = [link.indicator for link in version.indicator_links if link.indicator is not None]
+def _serialize_export_dataset(dataset: ExportDataset) -> dict[str, Any]:
+    try:
+        manifest = json.loads(dataset.build_json)
+    except json.JSONDecodeError:
+        manifest = {}
+    indicators = [link.indicator for link in dataset.indicator_links if link.indicator is not None]
     return {
-        "id": version.id,
-        "version": version.version,
-        "remote_version": version.remote_version,
-        "start_date": version.start_date,
-        "end_date": version.end_date,
-        "format": version.format,
-        "frequency": version.frequency,
-        "manifest_url": version.manifest_url,
-        "published_at": version.published_at,
-        "country": version.country,
+        "id": dataset.id,
+        "version": dataset.latest_version,
+        "export_version": f"v{dataset.latest_version}",
+        "start_date": dataset.start_date,
+        "end_date": dataset.end_date,
+        "format": dataset.format,
+        "frequency": dataset.frequency,
+        "csv_url": dataset.csv_export_url,
+        "json_url": dataset.json_export_url,
+        "generated_at": dataset.updated_at,
+        "country": dataset.country,
         "indicators": indicators,
         "manifest": manifest,
     }
-
-
-def _get_version_by_number(db: Session, dataset_id: int, version_number: int) -> PublishedDatasetVersion | None:
-    return db.scalar(
-        select(PublishedDatasetVersion)
-        .options(selectinload(PublishedDatasetVersion.country))
-        .where(
-            PublishedDatasetVersion.dataset_id == dataset_id,
-            PublishedDatasetVersion.version == version_number,
-        )
-    )
-
-
-def _log_failure(
-    db: Session,
-    *,
-    message: str,
-    remote_id: str | None,
-    remote_version: str | None,
-    dataset_id: int | None = None,
-) -> None:
-    db.rollback()
-    db.add(
-        PublishLog(
-            dataset_id=dataset_id,
-            version_id=None,
-            remote_provider=REMOTE_PROVIDER,
-            remote_id=remote_id,
-            remote_version=remote_version,
-            status="error",
-            message=message,
-            created_at=_utc_now(),
-        )
-    )
-    db.commit()

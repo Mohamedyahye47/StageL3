@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load richat_ui %}
 
 {% block title %}Catalogue | Richat DataBridge{% endblock %}
 {% block page_title %}Catalogue de données{% endblock %}
@@ -12,15 +13,9 @@
   <div class="catalogue-header">
     <div>
       <h2>Catalogue de données</h2>
-      <p>Explorez les datasets économiques publiés — {{ total_count }} publication(s) disponible(s).</p>
+      <p>Explorez les jeux de données économiques disponibles sous forme de liens d'export API — {{ total_count }} ressource(s).</p>
     </div>
 
-    <form method="post">
-      {% csrf_token %}
-      <button class="btn btn-soft" type="submit" name="action" value="sync_hf">
-        Synchroniser avec Hugging Face
-      </button>
-    </form>
   </div>
 
   {# ── Search Bar ──────────────────────────────────────── #}
@@ -31,7 +26,7 @@
         type="search"
         name="q"
         value="{{ filters.q }}"
-        placeholder="Rechercher par titre, slug, pays, dépôt…"
+        placeholder="Rechercher par titre, slug, pays, lien d'export..."
         autocomplete="off"
       >
 
@@ -62,7 +57,7 @@
           <input type="hidden" name="q" value="{{ filters.q }}">
         {% endif %}
 
-        <div class="filter-result-count">{{ datasets|length }} résultat(s)</div>
+        <div class="filter-result-count">{{ filtered_count }} résultat(s)</div>
         <hr class="filter-divider">
 
         <a
@@ -70,7 +65,7 @@
           href="{% url 'dashboard:dataset_create' %}"
           style="display:flex; width:100%; margin-bottom:12px; justify-content:center;"
         >
-          + Créer un dataset
+          + Créer un jeu de données
         </a>
 
         {# Country filter #}
@@ -105,10 +100,10 @@
           <hr class="filter-divider">
         {% endif %}
 
-        {# Status filter #}
+        {# Filtre etat #}
         {% if statuses %}
           <div class="filter-section">
-            <span class="filter-section-label">Statut</span>
+            <span class="filter-section-label">État</span>
 
             <label class="filter-check {% if not filters.status %}active{% endif %}">
               <input
@@ -131,8 +126,7 @@
                   onchange="document.getElementById('filter-form').submit()"
                 >
                 <span>
-                  {% if item == "published" %}Publié
-                  {% elif item == "success" %}Succès
+                  {% if item == "success" %}Succès
                   {% elif item == "draft" %}Brouillon
                   {% elif item == "archived" %}Archivé
                   {% else %}{{ item }}{% endif %}
@@ -164,18 +158,8 @@
             <article class="ods-card">
               <div class="ods-card-body">
                 <div class="ods-card-status">
-                  {% with status=dataset.last_publish_status|default:"published" %}
-                    {% if status == "published" %}
-                      <span class="status-badge success">Publié</span>
-                    {% elif status == "success" %}
-                      <span class="status-badge success">Succès</span>
-                    {% elif status == "draft" %}
-                      <span class="status-badge muted">Brouillon</span>
-                    {% elif status == "archived" %}
-                      <span class="status-badge warning">Archivé</span>
-                    {% else %}
-                      <span class="status-badge success">{{ status }}</span>
-                    {% endif %}
+                  {% with status=dataset.last_export_status|default:"success" %}
+                    <span class="status-badge {{ status|status_badge_class }}">{{ status|status_label }}</span>
                   {% endwith %}
 
                   <span class="soft-pill" style="margin-left:5px;">v{{ dataset.latest_version }}</span>
@@ -201,7 +185,7 @@
                 </div>
 
                 <div class="ods-card-meta">
-                  {{ dataset.published_at|slice:":10" }}
+                  {{ dataset.updated_at|slice:":10" }}
                 </div>
               </div>
 
@@ -209,11 +193,27 @@
                 <a class="btn btn-soft btn-sm" href="{% url 'dashboard:dataset_detail' dataset.slug %}">
                   Voir détail
                 </a>
+                {% if dataset.csv_url %}
+                  <button
+                    class="copy-icon-btn"
+                    type="button"
+                    data-copy-value="{{ dataset.csv_url }}"
+                    aria-label="Copier"
+                  >
+                    <span class="copy-icon" aria-hidden="true">
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                        <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                      </svg>
+                    </span>
+                    <span class="copy-tooltip">Copier</span>
+                  </button>
+                {% endif %}
 
                 <form
                   method="post"
                   style="display:inline;"
-                  onsubmit="return confirm('Supprimer ce dataset de Hugging Face et du miroir local ? Cette action est irréversible.');"
+                  onsubmit="return confirm(&quot;Supprimer cette configuration d'export du miroir local ? Cette action est irreversible.&quot;);"
                 >
                   {% csrf_token %}
                   <input type="hidden" name="slug" value="{{ dataset.slug }}">
@@ -226,22 +226,40 @@
           {% endfor %}
         </div>
 
+        {% if page_obj.paginator.num_pages > 1 %}
+          <nav class="app-pagination" aria-label="Pagination du catalogue">
+            {% if page_obj.has_previous %}
+              <a href="?q={{ filters.q|urlencode }}&country={{ filters.country|urlencode }}&status={{ filters.status|urlencode }}&page={{ page_obj.previous_page_number }}">Précédent</a>
+            {% else %}
+              <span class="disabled">Précédent</span>
+            {% endif %}
+
+            {% for number in page_obj.paginator.page_range %}
+              {% if number == page_obj.number %}
+                <span class="active">{{ number }}</span>
+              {% else %}
+                <a href="?q={{ filters.q|urlencode }}&country={{ filters.country|urlencode }}&status={{ filters.status|urlencode }}&page={{ number }}">{{ number }}</a>
+              {% endif %}
+            {% endfor %}
+
+            {% if page_obj.has_next %}
+              <a href="?q={{ filters.q|urlencode }}&country={{ filters.country|urlencode }}&status={{ filters.status|urlencode }}&page={{ page_obj.next_page_number }}">Suivant</a>
+            {% else %}
+              <span class="disabled">Suivant</span>
+            {% endif %}
+          </nav>
+        {% endif %}
+
       {% else %}
         <div class="empty-state">
-          <strong>Aucun dataset trouvé</strong>
-          <p>Ajustez les filtres, synchronisez avec Hugging Face ou créez une nouvelle publication.</p>
+          <strong>Aucun jeu de données trouvé</strong>
+          <p>Ajustez les filtres ou créez une nouvelle ressource d'export.</p>
 
           <div class="d-flex gap-2 flex-wrap justify-content-center">
             <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">
-              Créer un dataset
+              Créer un jeu de données
             </a>
 
-            <form method="post">
-              {% csrf_token %}
-              <button class="btn btn-soft" type="submit" name="action" value="sync_hf">
-                Synchroniser avec Hugging Face
-              </button>
-            </form>
           </div>
         </div>
       {% endif %}

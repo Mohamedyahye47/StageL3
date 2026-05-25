@@ -1,11 +1,14 @@
+{% load static %}
 <aside class="app-sidebar">
 
   {# ── Brand ──────────────────────────────────────────── #}
   <a class="brand-block" href="{% url 'dashboard:dashboard' %}">
-    <span class="brand-mark">RD</span>
+    <span class="brand-mark brand-mark-logo">
+      <img src="{% static 'img/richat_partners_logo.jpg' %}" alt="Richat Partners">
+    </span>
     <span>
       <strong>Richat DataBridge</strong>
-      <small>Plateforme de datasets économiques</small>
+      <small>Plateforme de jeux de données économiques</small>
     </span>
   </a>
 
@@ -39,7 +42,7 @@
       <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"/>
       </svg>
-      Créer un dataset
+      Créer un jeu de données
     </a>
 
     <a class="nav-item {% if active_page == 'assistant' %}active{% endif %}"
@@ -47,14 +50,39 @@
       Assistant IA
     </a>
 
-    <span class="nav-section-label">Système</span>
+    <span class="nav-section-label">Pilotage</span>
 
-    <a class="nav-item {% if active_page == 'health' %}active{% endif %}"
-       href="{% url 'dashboard:health' %}">
+    <a class="nav-item {% if active_page == 'model_parameters' %}active{% endif %}"
+       href="{% url 'dashboard:model_parameters' %}">
       <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-  <path fill-rule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm14 1a1 1 0 11-2 0 1 1 0 012 0zM2 13a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2v-2zm14 1a1 1 0 11-2 0 1 1 0 012 0z" clip-rule="evenodd"/>
-</svg>
-      Santé système
+        <path fill-rule="evenodd" d="M11.49 3.17a1.5 1.5 0 00-2.98 0l-.11.79a6.8 6.8 0 00-1.18.49l-.64-.48a1.5 1.5 0 00-2.1 2.1l.48.64c-.2.38-.36.77-.49 1.18l-.79.11a1.5 1.5 0 000 2.98l.79.11c.13.41.29.8.49 1.18l-.48.64a1.5 1.5 0 102.1 2.1l.64-.48c.38.2.77.36 1.18.49l.11.79a1.5 1.5 0 002.98 0l.11-.79c.41-.13.8-.29 1.18-.49l.64.48a1.5 1.5 0 102.1-2.1l-.48-.64c.2-.38.36-.77.49-1.18l.79-.11a1.5 1.5 0 000-2.98l-.79-.11a6.8 6.8 0 00-.49-1.18l.48-.64a1.5 1.5 0 10-2.1-2.1l-.64.48a6.8 6.8 0 00-1.18-.49l-.11-.79zM10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clip-rule="evenodd"/>
+      </svg>
+      Configuration IA
+    </a>
+
+    <a class="nav-item {% if active_page == 'mesures' %}active{% endif %}"
+       href="{% url 'dashboard:mesures' %}">
+      <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5H2v-5zM7 7a1 1 0 011-1h2a1 1 0 011 1v9H7V7zM12 4a1 1 0 011-1h2a1 1 0 011 1v12h-4V4z"/>
+      </svg>
+      Mesures
+    </a>
+
+    <a class="nav-item {% if active_page == 'ai_evaluation' %}active{% endif %}"
+       href="{% url 'dashboard:ai_evaluation' %}">
+      <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M9 2a1 1 0 012 0v1.07A7.002 7.002 0 0117.93 9H19a1 1 0 110 2h-1.07A7.002 7.002 0 0111 17.93V19a1 1 0 11-2 0v-1.07A7.002 7.002 0 012.07 11H1a1 1 0 110-2h1.07A7.002 7.002 0 019 3.07V2zM5 10a5 5 0 1010 0 5 5 0 00-10 0zm4-2a1 1 0 112 0v2.38l1.45 1.45a1 1 0 01-1.42 1.42l-1.74-1.75A1 1 0 019 10.8V8z"/>
+      </svg>
+      Évaluation IA
+    </a>
+
+    <a class="nav-item {% if active_page == 'users' %}active{% endif %}"
+       href="{% url 'dashboard:superuser_management' %}">
+      <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M10 10a4 4 0 100-8 4 4 0 000 8z"/>
+        <path fill-rule="evenodd" d="M2 18a8 8 0 0116 0H2z" clip-rule="evenodd"/>
+      </svg>
+      Administrateurs
     </a>
 
   </nav>
@@ -62,12 +90,22 @@
   {# ── Footer Panel ───────────────────────────────────── #}
   <div class="sidebar-panel">
     <span class="eyebrow">Mode opérationnel</span>
-    <strong>Publication contrôlée</strong>
-    <p>Interface Django connectée au backend FastAPI.</p>
-    <div class="sidebar-status">
+    <strong>API d'export active</strong>
+    <p>Interface Django connectée au serveur FastAPI.</p>
+    <div class="sidebar-status {% if backend_error %}disconnected{% endif %}">
       <span class="sidebar-status-dot"></span>
-      <span>Connecté</span>
+      <span>{% if backend_error %}Déconnecté{% else %}Connecté{% endif %}</span>
     </div>
+    {% if request.user.is_authenticated %}
+      <div class="sidebar-user">
+        <span>Connecté en tant que</span>
+        <strong>{{ request.user.username }}</strong>
+      </div>
+      <form method="post" action="{% url 'dashboard:logout' %}" class="sidebar-logout-form">
+        {% csrf_token %}
+        <button type="submit" class="sidebar-logout-button">Déconnexion</button>
+      </form>
+    {% endif %}
   </div>
 
 </aside>
