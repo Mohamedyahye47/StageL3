@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from urllib.parse import quote
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -66,15 +65,18 @@ def _require_https_url(name: str) -> str:
     return value
 
 
-def _build_turso_name(database_url: str, auth_token: str) -> str:
+def _turso_http_url(database_url: str) -> str:
     database_url = database_url.strip().rstrip("/")
-    auth_token = auth_token.strip()
 
-    if not database_url.startswith("libsql://"):
-        raise RuntimeError("DJANGO_TURSO_DATABASE_URL doit commencer par libsql://")
+    if database_url.startswith("libsql://"):
+        return "https://" + database_url.removeprefix("libsql://")
 
-    separator = "&" if "?" in database_url else "?"
-    return f"{database_url}{separator}authToken={quote(auth_token, safe='')}"
+    if database_url.startswith("https://"):
+        return database_url
+
+    raise RuntimeError(
+        "DJANGO_TURSO_DATABASE_URL doit commencer par libsql:// ou https://"
+    )
 
 
 # ---------------------------------------------------------------------
@@ -84,7 +86,10 @@ def _build_turso_name(database_url: str, auth_token: str) -> str:
 APP_ENV = _require_env("APP_ENV").lower()
 
 if APP_ENV != "production":
-    raise RuntimeError("Cette configuration supporte seulement Render production: APP_ENV=production est obligatoire.")
+    raise RuntimeError(
+        "Cette configuration supporte seulement Render production: "
+        "APP_ENV=production est obligatoire."
+    )
 
 if os.getenv("DJANGO_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}:
     raise RuntimeError("DJANGO_DEBUG doit être 0/false sur Render.")
@@ -110,7 +115,13 @@ _require_no_local_values("DJANGO_CSRF_TRUSTED_ORIGINS", CSRF_TRUSTED_ORIGINS)
 
 for origin in CSRF_TRUSTED_ORIGINS:
     if not origin.startswith("https://"):
-        raise RuntimeError("Chaque valeur de DJANGO_CSRF_TRUSTED_ORIGINS doit commencer par https://")
+        raise RuntimeError(
+            "Chaque valeur de DJANGO_CSRF_TRUSTED_ORIGINS doit commencer par https://"
+        )
+
+# En production, Django exige une configuration correcte de ALLOWED_HOSTS quand DEBUG=False.
+# CSRF_TRUSTED_ORIGINS doit aussi contenir les origines HTTPS autorisées.
+# Voir docs Django.
 
 
 # ---------------------------------------------------------------------
@@ -181,8 +192,12 @@ DJANGO_TURSO_AUTH_TOKEN = _require_env("DJANGO_TURSO_AUTH_TOKEN")
 
 DATABASES = {
     "default": {
-        "ENGINE": "libsql.db.backends.sqlite3",
-        "NAME": _build_turso_name(DJANGO_TURSO_DATABASE_URL, DJANGO_TURSO_AUTH_TOKEN),
+        "ENGINE": "django_libsql",
+        "NAME": _turso_http_url(DJANGO_TURSO_DATABASE_URL),
+        "AUTH_TOKEN": DJANGO_TURSO_AUTH_TOKEN,
+        "OPTIONS": {
+            "timeout": 30,
+        },
     }
 }
 
@@ -266,8 +281,8 @@ INTERNAL_API_TOKEN = _require_env("INTERNAL_API_TOKEN")
 
 try:
     REQUEST_TIMEOUT_SECONDS = float(os.getenv("DATABRIDGE_WEB_TIMEOUT", "18"))
-except ValueError:
-    raise RuntimeError("DATABRIDGE_WEB_TIMEOUT doit être un nombre.")
+except ValueError as exc:
+    raise RuntimeError("DATABRIDGE_WEB_TIMEOUT doit être un nombre.") from exc
 
 
 # ---------------------------------------------------------------------
