@@ -64,50 +64,25 @@ NUMERIC_MEASURE_FIELDS = {
 }
 MODEL_PARAMETER_GROUPS = [
     {
-        "title": "Couche 1 - Normalisation",
-        "eyebrow": "IA de normalisation",
+        "title": "Assistant IA",
+        "eyebrow": "Appel unique",
         "description": (
-            "Convertit la requête utilisateur en intention structurée : pays, source, thème, "
-            "dates, mots-clés et intention métier. Cette couche ne choisit pas librement les codes indicateurs."
+            "Un seul appel IA reçoit la demande utilisateur et les candidats locaux préparés par le serveur. "
+            "La réponse reste validée par la base locale avant d'être proposée au builder."
         ),
         "fields": [
-            {"name": "AI_NORMALIZER_PROVIDER", "label": "Fournisseur normalisation", "type": "select", "layer": "normalizer"},
-            {"name": "AI_NORMALIZER_MODEL", "label": "Modèle normalisation", "type": "select", "layer": "normalizer", "provider_field": "AI_NORMALIZER_PROVIDER"},
-        ],
-    },
-    {
-        "title": "Couche 2 - Sélection",
-        "eyebrow": "IA de sélection",
-        "description": (
-            "Sélectionne des indicateurs uniquement parmi les candidats locaux préparés par le serveur. "
-            "Elle ne doit pas inventer d'indicateurs."
-        ),
-        "fields": [
-            {"name": "AI_SELECTOR_PROVIDER", "label": "Fournisseur sélection", "type": "select", "layer": "selector"},
-            {"name": "AI_SELECTOR_MODEL", "label": "Modèle sélection", "type": "select", "layer": "selector", "provider_field": "AI_SELECTOR_PROVIDER"},
+            {"name": "AI_PROVIDER", "label": "Fournisseur IA", "type": "select", "layer": "recommendation"},
+            {"name": "AI_MODEL", "label": "Modèle IA", "type": "select", "layer": "recommendation", "provider_field": "AI_PROVIDER"},
+            {"name": "AI_TEMPERATURE", "label": "Température", "type": "range", "min": 0, "max": 1, "step": 0.1, "value_type": "float"},
             {"name": "AI_TARGET_INDICATORS", "label": "Nombre cible d'indicateurs", "type": "range", "min": 1, "max": 20, "step": 1},
-        ],
-    },
-    {
-        "title": "Couche 3 - Évaluation / audit",
-        "eyebrow": "IA évaluatrice",
-        "description": (
-            "Évalue la cohérence, les risques et la qualité de la recommandation. "
-            "Elle explique les risques, mais ne remplace jamais la décision serveur."
-        ),
-        "fields": [
-            {"name": "AI_ENABLE_EVALUATOR", "label": "Activer l'évaluateur", "type": "boolean"},
-            {"name": "AI_EVALUATOR_PROVIDER", "label": "Fournisseur évaluation", "type": "select", "layer": "evaluator"},
-            {"name": "AI_EVALUATOR_MODEL", "label": "Modèle évaluation", "type": "select", "layer": "evaluator", "provider_field": "AI_EVALUATOR_PROVIDER"},
-            {"name": "AI_EVALUATOR_MODE", "label": "Mode évaluateur", "type": "select", "options": ["off", "audit_only", "always"]},
         ],
     },
     {
         "title": "Garde-fous locaux",
         "eyebrow": "Règles métier serveur",
         "description": (
-            "Couche non IA : validation catalogue local, source, pays, thème, existence des indicateurs "
-            "et limites de sécurité."
+            "Couche non IA : validation de la source, du pays, du thème, de l'existence des indicateurs "
+            "et des limites de sécurité."
         ),
         "fields": [
             {"name": "AI_ENABLE_BUSINESS_RULES", "label": "Activer les règles métier", "type": "boolean"},
@@ -1908,7 +1883,8 @@ def _model_parameter_payload(values: dict[str, Any]) -> dict[str, Any]:
             if field["type"] == "boolean":
                 payload[name] = _normalise_runtime_bool(raw_value)
             elif field["type"] == "range":
-                payload[name] = int(float(raw_value or field["min"]))
+                number = float(raw_value or field["min"])
+                payload[name] = number if field.get("value_type") == "float" else int(number)
             else:
                 payload[name] = str(raw_value).strip()
     return payload
@@ -1961,14 +1937,9 @@ def _read_model_parameter_post(request) -> tuple[dict[str, Any], dict[str, str]]
 
 def _current_env_value(name: str) -> str:
     fallback_values = {
-        "AI_NORMALIZER_PROVIDER": "gemini",
-        "AI_SELECTOR_PROVIDER": "gemini",
-        "AI_EVALUATOR_PROVIDER": "gemini",
-        "AI_NORMALIZER_MODEL": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
-        "AI_SELECTOR_MODEL": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
-        "AI_EVALUATOR_MODEL": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
-        "AI_EVALUATOR_MODE": "audit_only",
-        "AI_ENABLE_EVALUATOR": "1",
+        "AI_PROVIDER": "gemini",
+        "AI_MODEL": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+        "AI_TEMPERATURE": "0",
         "AI_ENABLE_BUSINESS_RULES": "1",
         "AI_MAX_CANDIDATES": "40",
         "AI_TARGET_INDICATORS": "5",

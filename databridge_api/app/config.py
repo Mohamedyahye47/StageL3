@@ -105,19 +105,14 @@ AI_RESPONSE_MODE = (os.getenv("AI_RESPONSE_MODE") or "json_schema").strip().lowe
 AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0"))
 AI_MAX_CANDIDATES = int(os.getenv("AI_MAX_CANDIDATES", "40"))
 AI_TARGET_INDICATORS = int(os.getenv("AI_TARGET_INDICATORS", "5"))
-AI_NORMALIZER_PROVIDER = (os.getenv("AI_NORMALIZER_PROVIDER") or AI_PROVIDER).strip().lower()
-AI_NORMALIZER_MODEL = os.getenv("AI_NORMALIZER_MODEL") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-AI_SELECTOR_PROVIDER = (os.getenv("AI_SELECTOR_PROVIDER") or AI_PROVIDER).strip().lower()
-AI_SELECTOR_MODEL = os.getenv("AI_SELECTOR_MODEL") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-AI_EVALUATOR_PROVIDER = (os.getenv("AI_EVALUATOR_PROVIDER") or AI_PROVIDER).strip().lower()
-AI_EVALUATOR_MODEL = os.getenv("AI_EVALUATOR_MODEL") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+AI_MODEL = (
+    os.getenv("AI_MODEL")
+    or os.getenv("AI_ASSISTANT_MODEL")
+    or os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+)
 AI_ENABLE_BUSINESS_RULES = os.getenv("AI_ENABLE_BUSINESS_RULES", "1").strip().lower() in {"1", "true", "yes", "on"}
-AI_ENABLE_EVALUATOR = os.getenv("AI_ENABLE_EVALUATOR", "1").strip().lower() in {"1", "true", "yes", "on"}
 AI_LOG_DECISIONS = os.getenv("AI_LOG_DECISIONS", "1").strip().lower() in {"1", "true", "yes", "on"}
 AI_MIN_DIRECT_MATCHES = int(os.getenv("AI_MIN_DIRECT_MATCHES", "1"))
-AI_EVALUATOR_MODE = (os.getenv("AI_EVALUATOR_MODE") or "audit_only").strip().lower()
-AI_USE_LOCAL_FIRST = os.getenv("AI_USE_LOCAL_FIRST", "1").strip().lower() in {"1", "true", "yes", "on"}
-AI_ALLOW_GEMINI_ON_SIMPLE_REQUESTS = os.getenv("AI_ALLOW_GEMINI_ON_SIMPLE_REQUESTS", "0").strip().lower() in {"1", "true", "yes", "on"}
 SUPPORTED_AI_PROVIDERS = [
     item.strip().lower()
     for item in os.getenv(

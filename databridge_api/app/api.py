@@ -26,7 +26,7 @@ from app.schemas import (
     SourceOut,
     TopicOut,
 )
-from app.services import ai_assistant_service, ai_business_rules, ai_evaluation_service
+from app.services import ai_assistant_service, ai_business_rules
 
 from app.services.ai_assistant_service import (
     AIQuotaExceeded,
@@ -135,25 +135,15 @@ def _current_ai_runtime_config() -> AiRuntimeConfigOut:
     available_providers = {layer: values["available"] for layer, values in layer_providers.items()}
     disabled_providers = {layer: values["disabled"] for layer, values in layer_providers.items()}
     warnings: list[str] = []
-    for layer, provider, model in (
-        ("normalizer", ai_assistant_service.AI_NORMALIZER_PROVIDER, ai_assistant_service.AI_NORMALIZER_MODEL),
-        ("selector", ai_assistant_service.AI_SELECTOR_PROVIDER, ai_assistant_service.AI_SELECTOR_MODEL),
-        ("evaluator", ai_evaluation_service.AI_EVALUATOR_PROVIDER, ai_evaluation_service.AI_EVALUATOR_MODEL),
-    ):
-        try:
-            validate_layer_config(layer, provider, model)
-        except AIProviderConfigError as exc:
-            warnings.append(f"{layer}: {exc}")
+    try:
+        validate_layer_config("recommendation", ai_assistant_service.AI_PROVIDER, ai_assistant_service.AI_MODEL)
+    except AIProviderConfigError as exc:
+        warnings.append(f"recommendation: {exc}")
 
     return AiRuntimeConfigOut(
-        AI_NORMALIZER_PROVIDER=ai_assistant_service.AI_NORMALIZER_PROVIDER,
-        AI_NORMALIZER_MODEL=ai_assistant_service.AI_NORMALIZER_MODEL,
-        AI_SELECTOR_PROVIDER=ai_assistant_service.AI_SELECTOR_PROVIDER,
-        AI_SELECTOR_MODEL=ai_assistant_service.AI_SELECTOR_MODEL,
-        AI_ENABLE_EVALUATOR=ai_evaluation_service.AI_ENABLE_EVALUATOR,
-        AI_EVALUATOR_PROVIDER=ai_evaluation_service.AI_EVALUATOR_PROVIDER,
-        AI_EVALUATOR_MODEL=ai_evaluation_service.AI_EVALUATOR_MODEL,
-        AI_EVALUATOR_MODE=ai_evaluation_service.AI_EVALUATOR_MODE,
+        AI_PROVIDER=ai_assistant_service.AI_PROVIDER,
+        AI_MODEL=ai_assistant_service.AI_MODEL,
+        AI_TEMPERATURE=ai_assistant_service.AI_TEMPERATURE,
         AI_ENABLE_BUSINESS_RULES=ai_assistant_service.AI_ENABLE_BUSINESS_RULES,
         AI_MAX_CANDIDATES=ai_assistant_service.MAX_CANDIDATES,
         AI_TARGET_INDICATORS=ai_assistant_service.TARGET_INDICATORS,
@@ -176,41 +166,19 @@ def api_update_ai_runtime_config(
     payload: AiRuntimeConfigIn,
     _: None = Depends(require_internal_token),
 ):
-    normalizer_provider = payload.AI_NORMALIZER_PROVIDER.strip().lower()
-    selector_provider = payload.AI_SELECTOR_PROVIDER.strip().lower()
-    evaluator_provider = payload.AI_EVALUATOR_PROVIDER.strip().lower()
+    provider = payload.AI_PROVIDER.strip().lower()
     try:
-        validate_layer_config("normalizer", normalizer_provider, payload.AI_NORMALIZER_MODEL)
-        validate_layer_config("selector", selector_provider, payload.AI_SELECTOR_MODEL)
-        validate_layer_config("evaluator", evaluator_provider, payload.AI_EVALUATOR_MODEL)
+        validate_layer_config("recommendation", provider, payload.AI_MODEL)
     except AIProviderConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not all(
-        value.strip()
-        for value in (
-            payload.AI_NORMALIZER_MODEL,
-            payload.AI_SELECTOR_MODEL,
-            payload.AI_EVALUATOR_MODEL,
-        )
-    ):
+    if not payload.AI_MODEL.strip():
         raise HTTPException(status_code=400, detail="Les modèles IA sont obligatoires.")
-    if payload.AI_EVALUATOR_MODE not in {"off", "audit_only", "always"}:
-        raise HTTPException(status_code=400, detail="Mode évaluateur invalide.")
-
-    ai_assistant_service.AI_NORMALIZER_PROVIDER = normalizer_provider
-    ai_assistant_service.AI_NORMALIZER_MODEL = payload.AI_NORMALIZER_MODEL.strip()
-    ai_assistant_service.AI_SELECTOR_PROVIDER = selector_provider
-    ai_assistant_service.AI_SELECTOR_MODEL = payload.AI_SELECTOR_MODEL.strip()
-    ai_assistant_service.AI_EVALUATOR_PROVIDER = evaluator_provider
-    ai_assistant_service.AI_EVALUATOR_MODEL = payload.AI_EVALUATOR_MODEL.strip()
+    ai_assistant_service.AI_PROVIDER = provider
+    ai_assistant_service.AI_MODEL = payload.AI_MODEL.strip()
+    ai_assistant_service.AI_TEMPERATURE = payload.AI_TEMPERATURE
     ai_assistant_service.AI_ENABLE_BUSINESS_RULES = payload.AI_ENABLE_BUSINESS_RULES
     ai_assistant_service.MAX_CANDIDATES = payload.AI_MAX_CANDIDATES
     ai_assistant_service.TARGET_INDICATORS = payload.AI_TARGET_INDICATORS
-
-    ai_evaluation_service.AI_EVALUATOR_PROVIDER = evaluator_provider
-    ai_evaluation_service.AI_EVALUATOR_MODEL = payload.AI_EVALUATOR_MODEL.strip()
-    ai_evaluation_service.AI_ENABLE_EVALUATOR = payload.AI_ENABLE_EVALUATOR
-    ai_evaluation_service.AI_EVALUATOR_MODE = payload.AI_EVALUATOR_MODE
 
     app_config.SOURCE_LIMITS["WB"]["max_indicators_per_dataset"] = payload.WB_MAX_INDICATORS_PER_DATASET
     SOURCE_LIMITS["WB"]["max_indicators_per_dataset"] = payload.WB_MAX_INDICATORS_PER_DATASET

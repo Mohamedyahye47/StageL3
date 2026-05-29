@@ -137,7 +137,7 @@ def enregistrer_echec_decision_ia(
         "type": "evaluation_assistant_ia",
         "source_execution": source_execution,
         "triggered_by": triggered_by,
-        "pipeline_version": "ai_chain_v2",
+        "pipeline_version": "single_ai_v1",
         "run_id": run_id,
         "etat": "Erreur",
         "demande_utilisateur": demande_utilisateur,

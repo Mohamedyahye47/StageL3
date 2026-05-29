@@ -188,7 +188,7 @@ def generate_text(
     prompt: str,
     temperature: float,
 ) -> str:
-    spec = validate_layer_config("normalizer", provider, model)
+    spec = validate_layer_config("recommendation", provider, model)
     if spec.adapter != "gemini":
         raise AIProviderConfigError("Le test rapide en texte libre est disponible uniquement pour Gemini.")
     if genai is None:

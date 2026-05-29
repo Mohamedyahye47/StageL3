@@ -1,18 +1,8 @@
 from __future__ import annotations
 
-import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
-from app.ai.clients import generate_json
-from app.config import (
-    AI_ENABLE_EVALUATOR,
-    AI_EVALUATOR_MODEL,
-    AI_EVALUATOR_MODE,
-    AI_EVALUATOR_PROVIDER,
-    AI_TEMPERATURE,
-)
 
 
 class EvaluationResult(BaseModel):
@@ -27,74 +17,21 @@ class EvaluationResult(BaseModel):
 
 
 def should_run_ai_evaluator(*, audit: bool) -> bool:
-    if not AI_ENABLE_EVALUATOR:
-        return False
-    if AI_EVALUATOR_MODE == "off":
-        return False
-    if AI_EVALUATOR_MODE == "always":
-        return True
-    if AI_EVALUATOR_MODE == "audit_only":
-        return audit
     return False
 
 
 def evaluate_ai_recommendation(evidence_pack: dict[str, Any], *, use_ai: bool) -> dict[str, Any]:
     backend_state = str(evidence_pack.get("backend_business_state") or "unknown")
     backend_result = _backend_evaluation(evidence_pack, backend_state)
-    if not use_ai:
-        return {
-            "mode": "backend_only",
-            "result": backend_result.model_dump(),
-            "error": None,
-        }
-
-    try:
-        ai_result = _call_ai_evaluator(evidence_pack)
-    except Exception as exc:
-        return {
-            "mode": "backend_only_after_ai_error",
-            "result": backend_result.model_dump(),
-            "error": str(exc),
-        }
-
-    final = _merge_with_backend_state(ai_result, backend_state)
     return {
-        "mode": "ai_evaluator",
-        "provider": AI_EVALUATOR_PROVIDER,
-        "model": AI_EVALUATOR_MODEL,
-        "result": final.model_dump(),
+        "mode": "server_validation",
+        "result": backend_result.model_dump(),
         "error": None,
     }
 
 
 def _call_ai_evaluator(evidence_pack: dict[str, Any]) -> EvaluationResult:
-    prompt = f"""
-Tu es l'evaluateur critique de Richat DataBridge.
-
-Tu ne selectionnes pas d'indicateurs. Tu evalues seulement la coherence de la recommandation
-a partir des preuves fournies par le serveur.
-
-Regles strictes :
-- Tous les textes visibles (explanation, strengths, weaknesses) doivent etre en francais.
-- Si les preuves sont insuffisantes, reponds unknown.
-- Si l'aperçu réel des données n'est pas disponible, ne déclare pas une disponibilité complète des données.
-- Si le serveur indique incoherent, ne declare pas acceptable.
-- N'invente pas de codes.
-- Ne mentionne aucun secret.
-- Retourne uniquement le schema JSON demande.
-
-Dossier de preuves :
-{json.dumps(evidence_pack, ensure_ascii=False, indent=2, default=str)}
-"""
-    return _ensure_french_result(generate_json(
-        layer="evaluator",
-        provider=AI_EVALUATOR_PROVIDER,
-        model=AI_EVALUATOR_MODEL,
-        system_prompt="Tu audites une recommandation IA pour Richat DataBridge.",
-        user_prompt=prompt,
-        schema=EvaluationResult,
-        temperature=AI_TEMPERATURE,
-    ))
+    raise RuntimeError("L'évaluation IA séparée a été remplacée par la validation serveur.")
 
 
 def _backend_evaluation(evidence_pack: dict[str, Any], backend_state: str) -> EvaluationResult:

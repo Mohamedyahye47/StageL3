@@ -9,14 +9,9 @@ class AiRecommendationIn(BaseModel):
 
 
 class AiRuntimeConfigIn(BaseModel):
-    AI_NORMALIZER_PROVIDER: str = "gemini"
-    AI_NORMALIZER_MODEL: str
-    AI_SELECTOR_PROVIDER: str = "gemini"
-    AI_SELECTOR_MODEL: str
-    AI_ENABLE_EVALUATOR: bool = True
-    AI_EVALUATOR_PROVIDER: str = "gemini"
-    AI_EVALUATOR_MODEL: str
-    AI_EVALUATOR_MODE: str = "audit_only"
+    AI_PROVIDER: str = "gemini"
+    AI_MODEL: str
+    AI_TEMPERATURE: float = Field(default=0, ge=0, le=1)
     AI_ENABLE_BUSINESS_RULES: bool = True
     AI_MAX_CANDIDATES: int = Field(default=40, ge=10, le=100)
     AI_TARGET_INDICATORS: int = Field(default=5, ge=1, le=20)

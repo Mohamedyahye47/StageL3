@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
-LayerCode = Literal["normalizer", "selector", "evaluator"]
+LayerCode = Literal["recommendation"]
 
 JSONCapability = Literal[
     "native_json_schema",
@@ -13,10 +13,8 @@ JSONCapability = Literal[
     "unsupported",
 ]
 
-LayerLabels: dict[LayerCode, str] = {
-    "normalizer": "Normalisation",
-    "selector": "Sélection",
-    "evaluator": "Évaluation",
+LayerLabels = {
+    "recommendation": "Recommandation IA",
 }
 
 
@@ -57,7 +55,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("GEMINI_API_KEY",),
         model_env="GEMINI_MODEL",
         default_model="gemini-2.5-flash-lite",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="native_json_schema",
     ),
     "openai": ProviderSpec(
@@ -67,7 +65,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("OPENAI_API_KEY",),
         model_env="OPENAI_MODEL",
         default_model="gpt-4.1-mini",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="json_object",
     ),
     "azure_openai": ProviderSpec(
@@ -77,7 +75,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT"),
         model_env="AZURE_OPENAI_DEPLOYMENT",
         default_model="replace-with-your-azure-deployment-name",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="json_object",
         endpoint_env="AZURE_OPENAI_ENDPOINT",
         deployment_env="AZURE_OPENAI_DEPLOYMENT",
@@ -90,7 +88,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("ANTHROPIC_API_KEY",),
         model_env="ANTHROPIC_MODEL",
         default_model="claude-3-5-haiku-latest",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="prompt_json_then_validate",
     ),
     "mistral": ProviderSpec(
@@ -100,7 +98,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("MISTRAL_API_KEY",),
         model_env="MISTRAL_MODEL",
         default_model="mistral-small-latest",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="json_object",
     ),
     "deepseek": ProviderSpec(
@@ -110,7 +108,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("DEEPSEEK_API_KEY",),
         model_env="DEEPSEEK_MODEL",
         default_model="deepseek-chat",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="json_object",
     ),
     "cohere": ProviderSpec(
@@ -130,7 +128,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("GROQ_API_KEY",),
         model_env="GROQ_MODEL",
         default_model="llama-3.1-70b-versatile",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="json_object",
     ),
     "together": ProviderSpec(
@@ -140,7 +138,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("TOGETHER_API_KEY",),
         model_env="TOGETHER_MODEL",
         default_model="meta-llama/Llama-3.1-70B-Instruct-Turbo",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="json_object",
     ),
     "xai": ProviderSpec(
@@ -150,7 +148,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         key_envs=("XAI_API_KEY",),
         model_env="XAI_MODEL",
         default_model="grok-2-latest",
-        supported_layers=("normalizer", "selector", "evaluator"),
+        supported_layers=("recommendation",),
         json_capability="json_object",
     ),
     "perplexity": ProviderSpec(
@@ -221,7 +219,7 @@ def _disabled_reason(spec: ProviderSpec | None, layer: LayerCode) -> str | None:
     if spec.adapter is None:
         return "Adaptateur non implémenté."
     if layer not in spec.supported_layers:
-        return "Ce fournisseur n'est pas disponible pour cette couche."
+        return "Ce fournisseur n'est pas disponible pour la recommandation IA."
     if spec.json_capability == "unsupported":
         return "JSON structuré non supporté pour cette couche."
     if not provider_is_configured(spec):

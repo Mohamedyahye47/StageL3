@@ -16,18 +16,12 @@ from sqlalchemy.orm import Session
 from app.ai.clients import generate_json, generate_text
 from app.config import (
     AI_ENABLE_BUSINESS_RULES,
-    AI_ALLOW_GEMINI_ON_SIMPLE_REQUESTS,
     AI_LOG_DECISIONS,
-    AI_EVALUATOR_MODEL,
-    AI_EVALUATOR_PROVIDER,
     AI_MAX_CANDIDATES,
-    AI_NORMALIZER_MODEL,
-    AI_NORMALIZER_PROVIDER,
-    AI_SELECTOR_MODEL,
-    AI_SELECTOR_PROVIDER,
+    AI_MODEL as CONFIG_AI_MODEL,
+    AI_PROVIDER as CONFIG_AI_PROVIDER,
     AI_TARGET_INDICATORS,
     AI_TEMPERATURE,
-    AI_USE_LOCAL_FIRST,
     get_source_indicator_limit,
     get_source_label,
 )
@@ -43,7 +37,6 @@ from app.services.ai_business_rules import (
     preferred_topic_names,
     required_missing,
 )
-from app.services.ai_evaluation_service import evaluate_ai_recommendation, should_run_ai_evaluator
 from app.services.measure_service import enregistrer_mesure
 from app.services.model_evaluation_service import enregistrer_journal_decision_ia_detaille
 
@@ -56,6 +49,8 @@ DEFAULT_COUNTRY_NAME = "Mauritanie"
 
 MAX_CANDIDATES = AI_MAX_CANDIDATES
 TARGET_INDICATORS = AI_TARGET_INDICATORS
+AI_PROVIDER = CONFIG_AI_PROVIDER
+AI_MODEL = CONFIG_AI_MODEL
 
 COUNTRY_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
     "CHN": ("chine", "china", "chn", "cn", "republique populaire de chine"),
@@ -115,6 +110,24 @@ class CandidateSelection(BaseModel):
     not_selected: list[SelectedCandidateIndicator] = Field(default_factory=list)
     uncertainty: Literal["low", "medium", "high"] = "medium"
     confidence: Literal["low", "medium", "high"] = "medium"
+
+
+class SingleCallDatasetRecommendation(BaseModel):
+    source_code: str = Field(default="WB", description="Recommended source code, usually WB")
+    country_id: int | None = Field(default=None, description="Local country ID if known from context")
+    country_name: str = Field(description="Country name for the dataset")
+    start_year: int = Field(description="Recommended start year")
+    end_year: int = Field(description="Recommended end year")
+    topic_id: int | None = Field(default=None, description="Local topic ID if known from context")
+    topic_name: str | None = Field(default=None, description="Topic name if useful")
+    topic_intent: str = Field(default="general", description="Business intent or theme")
+    title: str = Field(description="Suggested dataset title in French")
+    description: str = Field(description="Suggested dataset description in French")
+    selected_indicators: list[SelectedCandidateIndicator] = Field(description="Selected local candidate indicators")
+    not_selected: list[SelectedCandidateIndicator] = Field(default_factory=list)
+    search_keywords: list[str] = Field(default_factory=list)
+    confidence: Literal["low", "medium", "high"] = "medium"
+    ambiguity_level: Literal["low", "medium", "high"] = "medium"
 
 
 class ValidatedIndicatorSuggestion(BaseModel):
@@ -190,82 +203,18 @@ def get_gemini_client(provider: str | None = None):
 
 def quick_ai_test() -> str:
     return generate_text(
-        provider=AI_NORMALIZER_PROVIDER,
-        model=AI_NORMALIZER_MODEL,
+        provider=AI_PROVIDER,
+        model=AI_MODEL,
         prompt="Réponds en une phrase: le service IA de Richat DataBridge fonctionne.",
         temperature=AI_TEMPERATURE,
     )
 
-    """
-        contents="Réponds en une phrase: le service AI de Richat DataBridge fonctionne.",
-    )
-
-    """
-
 
 def normalize_user_request(user_request: str) -> NormalizedRequest:
-    """
-    Step 1:
-    The configured normalizer provider normalizes the user request.
-
-    Important:
-    The normalizer is NOT allowed to recommend indicator codes here.
-    It only returns:
-    - source
-    - country
-    - dates
-    - title
-    - description
-    - search keywords
-    """
-
+    """Compatibility wrapper: deterministic local parsing, no external IA call."""
     if not user_request.strip():
         raise ValueError("user_request is required")
-
-    prompt = f"""
-You are an assistant for Richat DataBridge.
-
-Richat DataBridge creates economic and development datasets from a local metadata catalogue.
-
-User request:
-\"\"\"{user_request}\"\"\"
-
-Task:
-Normalize the request and return structured data.
-
-Strict rules:
-- Do NOT recommend indicator codes.
-- Do NOT invent World Bank codes.
-- topic_intent must be one of: population, inflation, economic_growth, poverty, unemployment, trade, health, education, general.
-- requested_concepts must describe the real concepts requested by the user.
-- Return only search keywords that can be used to search a local indicator catalogue.
-- source_code should usually be "WB".
-- If the user gives a specific country, use that country.
-- If the user gives only a region or continent, use "Mauritanie" because the current builder supports one country at a time.
-- If the user gives no country, use "Mauritanie".
-- If the user gives a start year, respect it.
-- If no start year is given, use 2000.
-- Never use an end year after 2023.
-- If no end year is given, use 2023.
-- Title and description must be in French.
-- Keywords should include French and English terms when useful.
-- If the request says "individus", map the concept to population/demography.
-- If the request says "inflation", keep topic_intent as inflation, never environment.
-- If the request says "pauvreté", "pauvrete" or "poverty", keep topic_intent as poverty and mention poverty, income and living conditions concepts.
-- If the request says "croissance economique", keep topic_intent as economic_growth and mention GDP/PIB concepts.
-- ambiguity_level should be low for clear country/domain/date requests, otherwise medium or high.
-- Return only structured data matching the schema.
-"""
-
-    return generate_json(
-        layer="normalizer",
-        provider=AI_NORMALIZER_PROVIDER,
-        model=AI_NORMALIZER_MODEL,
-        system_prompt="Tu normalises une demande utilisateur pour Richat DataBridge.",
-        user_prompt=prompt,
-        schema=NormalizedRequest,
-        temperature=AI_TEMPERATURE,
-    )
+    return build_initial_local_analysis(user_request, DEFAULT_COUNTRY_NAME)
 
 
 def analyze_user_request(user_request: str) -> RequestAnalysis:
@@ -512,10 +461,9 @@ def search_candidate_indicators(
     limit: int = MAX_CANDIDATES,
 ) -> list[Indicator]:
     """
-    Search LOCAL metadata first.
+    Search local metadata before the single IA recommendation call.
 
-    The selector provider will later choose only from these candidates.
-    This prevents invented/non-existing indicator codes.
+    The final server validation still rejects invented or unknown indicators.
     """
 
     clean_keywords = [keyword.strip() for keyword in keywords if keyword.strip()]
@@ -595,52 +543,74 @@ def choose_indicators_from_candidates(
     candidates_payload: list[dict[str, Any]],
     max_indicators: int,
 ) -> CandidateSelection:
-    """
-    Step 2:
-    The selector provider chooses only from local DB candidates.
+    """Compatibility wrapper: select local candidates without any IA call."""
+    selected = [
+        SelectedCandidateIndicator(
+            indicator_id=int(item.get("indicator_id") or item.get("id")),
+            reason="Indicateur retenu par les regles locales serveur.",
+        )
+        for item in candidates_payload[:max_indicators]
+        if item.get("indicator_id") or item.get("id")
+    ]
+    return CandidateSelection(
+        title=analysis.title,
+        description=analysis.description,
+        selected_indicators=selected,
+        confidence=analysis.confidence,
+    )
 
-    It must return IDs, not invented codes.
-    """
 
+def recommend_dataset_from_local_candidates(
+    *,
+    user_request: str,
+    initial_analysis: RequestAnalysis,
+    local_context: dict[str, Any],
+    candidates_payload: list[dict[str, Any]],
+    max_indicators: int,
+) -> SingleCallDatasetRecommendation:
     prompt = f"""
-You are an assistant for Richat DataBridge.
+You are the single AI assistant call for Richat DataBridge.
+
+Richat DataBridge builds World Bank datasets from a local metadata catalogue.
 
 User request:
 \"\"\"{user_request}\"\"\"
 
-Initial analysis:
-{analysis.model_dump_json(ensure_ascii=False)}
+Server-side initial analysis:
+{initial_analysis.model_dump_json(ensure_ascii=False)}
 
-Local candidate indicators:
+Local source/country/topic context:
+{json.dumps(local_context, ensure_ascii=False, indent=2)}
+
+Local candidate indicators prepared by the server:
 {json.dumps(candidates_payload, ensure_ascii=False, indent=2)}
 
 Task:
-Choose the best indicators from the local candidate list.
+Return one structured dataset recommendation.
 
 Strict rules:
-- You MUST choose indicators only from the candidate list.
-- You MUST return only indicator_id values that exist in the candidate list.
-- Do NOT invent codes.
-- Do NOT invent IDs.
+- Use only the local candidate indicators listed above.
+- Select indicators by local indicator_id/id only.
+- Do not invent indicators, codes, sources, countries or dates.
 - Choose at most {max_indicators} indicators.
-- If a candidate has a high score_backend and directly matches the request, prioritize it.
-- For a normal request, prefer a short useful selection of 3 to 5 indicators.
-- The source limit is a technical ceiling, not a default target.
-- If fewer than {max_indicators} are truly relevant, choose fewer.
-- For a very precise request, one direct indicator can be enough.
-- If the exact requested variable is not available, choose the closest useful proxy indicators and explain that clearly.
-- Keep title and description in French.
-- The title must match the selected local indicators, not imagined indicators.
+- Prefer 3 to 5 relevant indicators, but use fewer for a precise request.
+- If the exact variable is available, select it.
+- If only proxy indicators are available, say so in the reason.
+- Keep the title and description in French.
+- source_code should usually be "WB".
+- If country_id or topic_id is obvious from server context, include it.
+- If the user did not provide a country, keep the server default country.
+- Never use an end year after 2023.
 - Return only structured data matching the schema.
 """
 
     return generate_json(
-        layer="selector",
-        provider=AI_SELECTOR_PROVIDER,
-        model=AI_SELECTOR_MODEL,
-        system_prompt="Tu sélectionnes des indicateurs locaux pour Richat DataBridge.",
+        layer="recommendation",
+        provider=AI_PROVIDER,
+        model=AI_MODEL,
+        system_prompt="Tu produis une recommandation de jeu de donnees en un seul appel IA.",
         user_prompt=prompt,
-        schema=CandidateSelection,
+        schema=SingleCallDatasetRecommendation,
         temperature=AI_TEMPERATURE,
     )
 
@@ -711,9 +681,61 @@ def _topic_match_key(value: str | None) -> str:
 
 def fallback_selection_from_candidates(candidates: list[Indicator], *, max_indicators: int) -> list[Indicator]:
     """
-    Last-resort fallback if the selector provider cannot choose but local candidates exist.
+    Last-resort fallback if the single IA call returns no valid local indicators.
     """
     return candidates[: min(max_indicators, len(candidates))]
+
+
+def _single_call_local_context(
+    *,
+    source: Source | None,
+    country: Country | None,
+    candidates_payload: list[dict[str, Any]],
+) -> dict[str, Any]:
+    topic_names: list[str] = []
+    for candidate in candidates_payload:
+        for topic in candidate.get("topics") or []:
+            if topic and topic not in topic_names:
+                topic_names.append(str(topic))
+    return {
+        "sources": [
+            {
+                "source_code": source.code,
+                "source_id": source.id,
+                "name": source.name,
+            }
+        ] if source else [],
+        "countries": [
+            {
+                "country_id": country.id,
+                "country_name": country.name,
+                "country_code": country.code_iso3,
+            }
+        ] if country else [],
+        "topics": topic_names[:20],
+    }
+
+
+def build_initial_local_analysis(user_request: str, country_name: str) -> NormalizedRequest:
+    local_intent = _detect_local_intent(user_request) or "general"
+    correction_detectee = _detect_local_correction(user_request)
+    start_year, end_year = _detect_year_range(user_request)
+    concepts = _local_concepts_for_intent(local_intent, correction_detectee=correction_detectee)
+    keywords = build_search_terms(user_request, [*concepts, local_intent])
+    clean_country_name = country_name or DEFAULT_COUNTRY_NAME
+    return NormalizedRequest(
+        source_code="WB",
+        country_name=clean_country_name,
+        start_year=start_year,
+        end_year=end_year,
+        topic_intent=local_intent,
+        requested_concepts=concepts,
+        title=_local_title(local_intent, clean_country_name),
+        description=_local_description(local_intent, clean_country_name, start_year),
+        search_keywords=keywords[:20],
+        ambiguity_level="medium" if local_intent == "general" else "low",
+        declared_confidence="medium",
+    )
 
 
 def recommend_dataset_validated(
@@ -741,19 +763,6 @@ def recommend_dataset_validated(
             return local
         raise ValueError("Le mode local ne reconnait pas encore cette demande.")
 
-    if AI_USE_LOCAL_FIRST and not AI_ALLOW_GEMINI_ON_SIMPLE_REQUESTS:
-        local = recommend_dataset_local(
-            db,
-            user_request,
-            source_execution="local_rules",
-            triggered_by=triggered_by,
-            run_id=run_id,
-            fallback_used=True,
-            fallback_reason="simple_request",
-        )
-        if local is not None:
-            return local
-
     try:
         return _recommend_dataset_validated_with_ai(
             db,
@@ -778,11 +787,24 @@ def recommend_dataset_validated(
             if local is not None:
                 return local
             raise AIQuotaExceeded(
-                provider=AI_NORMALIZER_PROVIDER,
-                model=AI_NORMALIZER_MODEL,
+                provider=AI_PROVIDER,
+                model=AI_MODEL,
                 retry_after_seconds=_extract_retry_after_seconds(exc),
                 fallback_available=True,
             ) from exc
+        if not isinstance(exc, ValueError):
+            local = recommend_dataset_local(
+                db,
+                user_request,
+                source_execution="local_rules",
+                triggered_by=triggered_by,
+                run_id=run_id,
+                fallback_used=True,
+                fallback_reason="provider_error",
+                provider_error_type=exc.__class__.__name__,
+            )
+            if local is not None:
+                return local
         raise
 
 
@@ -797,11 +819,10 @@ def _recommend_dataset_validated_with_ai(
 ) -> ValidatedDatasetRecommendation:
     """
     Safe AI workflow:
-    1. AI normalizes the request without indicator codes.
-    2. Backend searches local metadata and applies business rules.
-    3. AI selects only from governed local candidates.
-    4. Backend validates, injects required direct indicators, and decides business state.
-    5. Optional evaluator enriches the decision log without replacing backend truth.
+    1. Backend prepares local candidates and applies business rules.
+    2. One AI call returns a structured recommendation from those candidates.
+    3. Backend validates indicator IDs against the local database.
+    4. The user can still adjust the result in the Django builder.
     """
 
     mesure_debut = time.perf_counter()
@@ -810,14 +831,17 @@ def _recommend_dataset_validated_with_ai(
     nombre_appels_ia = 0
 
     debut = time.perf_counter()
-    analysis = normalize_user_request(user_request)
-    nombre_appels_ia += 1
-    etapes["normalisation_ia"] = {
+    initial_country_resolution = resolve_country_from_request(db, user_request)
+    if initial_country_resolution.explicit_country_mentioned and initial_country_resolution.error == "country_not_found":
+        raise ValueError("Pays non reconnu. Veuillez selectionner le pays manuellement.")
+    analysis = build_initial_local_analysis(
+        user_request,
+        initial_country_resolution.country_name or DEFAULT_COUNTRY_NAME,
+    )
+    etapes["preparation_locale"] = {
         "duree_secondes": round(time.perf_counter() - debut, 4),
-        "resultat": "Reussi",
-        "role_ia": "normalisation",
-        "modele": AI_NORMALIZER_MODEL,
-        "fournisseur": AI_NORMALIZER_PROVIDER,
+        "resultat": "Candidats prepares sans appel IA preliminaire",
+        "role_ia": "aucun_appel_ia",
         "taille_demande_caracteres": len(user_request),
     }
 
@@ -898,27 +922,60 @@ def _recommend_dataset_validated_with_ai(
     selection_items: list[SelectedCandidateIndicator] = []
     non_retenus: list[dict[str, Any]] = []
     invalides: list[dict[str, Any]] = []
+    selection: SingleCallDatasetRecommendation | None = None
 
     title = analysis.title
     description = analysis.description
     confidence: Literal["low", "medium", "high"] = analysis.confidence
 
-    if governed.candidates:
+    should_call_external_ai = True
+    if should_call_external_ai:
         debut = time.perf_counter()
-        selection = choose_indicators_from_candidates(
+        selection = recommend_dataset_from_local_candidates(
             user_request=user_request,
-            analysis=analysis,
+            initial_analysis=analysis,
+            local_context=_single_call_local_context(source=source, country=country, candidates_payload=governed.candidate_payload),
             candidates_payload=governed.candidate_payload,
             max_indicators=max_recommended_indicators,
         )
         nombre_appels_ia += 1
-        etapes["selection_ia"] = {
+        etapes["recommandation_ia"] = {
             "duree_secondes": round(time.perf_counter() - debut, 4),
             "resultat": f"{len(selection.selected_indicators)} indicateur(s) proposes",
-            "role_ia": "selection",
-            "modele": AI_SELECTOR_MODEL,
-            "fournisseur": AI_SELECTOR_PROVIDER,
+            "role_ia": "recommandation",
+            "modele": AI_MODEL,
+            "fournisseur": AI_PROVIDER,
         }
+        selected_source = validate_source(db, selection.source_code)
+        if selected_source is not None:
+            source = selected_source
+        selected_country = db.get(Country, selection.country_id) if selection.country_id else None
+        if selected_country is None:
+            selected_country = validate_country(db, selection.country_name)
+        if selected_country is not None and not country_resolution.explicit_country_mentioned:
+            country = selected_country
+            country_resolution = CountryResolution(
+                country_id=selected_country.id,
+                country_code=selected_country.code_iso3,
+                country_name=selected_country.name,
+                confidence="medium",
+                explicit_country_mentioned=False,
+                used_default_country=False,
+            )
+        analysis = analysis.model_copy(
+            update={
+                "source_code": source.code if source else selection.source_code,
+                "country_name": country.name if country else selection.country_name,
+                "start_year": selection.start_year,
+                "end_year": selection.end_year,
+                "topic_intent": selection.topic_intent or governed.intent,
+                "title": selection.title,
+                "description": selection.description,
+                "search_keywords": selection.search_keywords or analysis.search_keywords,
+                "ambiguity_level": selection.ambiguity_level,
+                "declared_confidence": selection.confidence,
+            }
+        )
         selection_items = list(selection.selected_indicators)
         title = selection.title or analysis.title
         description = selection.description or analysis.description
@@ -970,10 +1027,10 @@ def _recommend_dataset_validated_with_ai(
             + " Aucun indicateur local suffisamment pertinent n'a ete trouve dans le catalogue."
         )
         confidence = "low"
-        etapes["selection_ia"] = {
+        etapes["recommandation_ia"] = {
             "duree_secondes": 0,
             "resultat": "Aucun candidat envoye au modele",
-            "role_ia": "selection",
+            "role_ia": "aucun_appel_ia",
         }
 
     _ensure_required_indicators(
@@ -989,7 +1046,7 @@ def _recommend_dataset_validated_with_ai(
             max_indicators=max_recommended_indicators,
         )
         for indicator in selected_models:
-            reason_by_id[indicator.id] = "Indicateur local retenu par secours serveur apres echec de selection IA."
+            reason_by_id[indicator.id] = "Indicateur local retenu par secours serveur apres echec de recommandation IA."
         confidence = "low"
 
     debut = time.perf_counter()
@@ -999,6 +1056,12 @@ def _recommend_dataset_validated_with_ai(
         intent=governed.intent,
         source_id=source.id if source else None,
     )
+    if selection and selection.topic_id:
+        selected_topic = db.get(Topic, selection.topic_id)
+        if selected_topic is not None and (source is None or selected_topic.source_id == source.id):
+            topic = selected_topic
+    elif selection and selection.topic_name and topic is None:
+        topic = _find_preferred_topic(db, (selection.topic_name,), source_id=source.id if source else None)
     etapes["validation_backend"] = {
         "duree_secondes": round(time.perf_counter() - debut, 4),
         "resultat": topic.name if topic else "Aucun theme dominant",
@@ -1046,22 +1109,17 @@ def _recommend_dataset_validated_with_ai(
     )
 
     debut = time.perf_counter()
-    use_ai_evaluator = should_run_ai_evaluator(audit=audit)
-    evaluation = evaluate_ai_recommendation(evidence_pack, use_ai=use_ai_evaluator)
-    if use_ai_evaluator:
-        nombre_appels_ia += 1
-    etapes["evaluation_ia"] = {
+    evaluation = _server_validation_evaluation(evidence_pack)
+    etapes["validation_serveur"] = {
         "duree_secondes": round(time.perf_counter() - debut, 4),
         "resultat": evaluation.get("result", {}).get("judge_decision", "unknown"),
-        "role_ia": "evaluation" if use_ai_evaluator else "evaluation_backend",
-        "modele": AI_EVALUATOR_MODEL if use_ai_evaluator else None,
-        "fournisseur": AI_EVALUATOR_PROVIDER if use_ai_evaluator else None,
+        "role_ia": "aucun_appel_ia",
     }
 
     duree_totale = round(time.perf_counter() - mesure_debut, 4)
     decision_evaluateur = evaluation.get("result", {}).get("judge_decision")
-    provider_summary = _chain_provider_summary(include_evaluator=use_ai_evaluator)
-    model_summary = _chain_model_summary(include_evaluator=use_ai_evaluator)
+    provider_summary = AI_PROVIDER
+    model_summary = AI_MODEL
 
     recommendation = ValidatedDatasetRecommendation(
         source_code=source.code if source else (analysis.source_code or "WB").upper(),
@@ -1127,7 +1185,7 @@ def _recommend_dataset_validated_with_ai(
             "type": "assistant_ia_audit" if audit else "assistant_ia_normal",
             "source_execution": source_execution,
             "triggered_by": triggered_by,
-            "pipeline_version": "ai_chain_v2",
+            "pipeline_version": "single_ai_v1",
             "run_id": run_id,
             "etat": etat_technique,
             "etat_technique": etat_technique,
@@ -1140,16 +1198,12 @@ def _recommend_dataset_validated_with_ai(
             "fallback_used": False,
             "fallback_reason": "none",
             "provider_error_type": None,
-            "roles_ia": ["normalisation", "selection", *([] if not use_ai_evaluator else ["evaluation"])],
+            "roles_ia": ["recommandation"],
             "fournisseurs_roles": {
-                "normalisation": AI_NORMALIZER_PROVIDER,
-                "selection": AI_SELECTOR_PROVIDER,
-                "evaluation": AI_EVALUATOR_PROVIDER if use_ai_evaluator else None,
+                "recommandation": AI_PROVIDER,
             },
             "modeles_roles": {
-                "normalisation": AI_NORMALIZER_MODEL,
-                "selection": AI_SELECTOR_MODEL,
-                "evaluation": AI_EVALUATOR_MODEL if use_ai_evaluator else None,
+                "recommandation": AI_MODEL,
             },
             "taille_demande_caracteres": len(user_request),
             "nombre_candidats": governed.found_before_limit,
@@ -1168,18 +1222,12 @@ def _recommend_dataset_validated_with_ai(
     return recommendation
 
 
-def _chain_provider_summary(*, include_evaluator: bool) -> str:
-    providers = [AI_NORMALIZER_PROVIDER, AI_SELECTOR_PROVIDER]
-    if include_evaluator:
-        providers.append(AI_EVALUATOR_PROVIDER)
-    return " / ".join(dict.fromkeys(provider for provider in providers if provider))
+def _chain_provider_summary(*, include_details: bool = False) -> str:
+    return AI_PROVIDER
 
 
-def _chain_model_summary(*, include_evaluator: bool) -> str:
-    models = [AI_NORMALIZER_MODEL, AI_SELECTOR_MODEL]
-    if include_evaluator:
-        models.append(AI_EVALUATOR_MODEL)
-    return " / ".join(model for model in models if model)
+def _chain_model_summary(*, include_details: bool = False) -> str:
+    return AI_MODEL
 
 
 def recommend_dataset_local(
@@ -1337,7 +1385,7 @@ def recommend_dataset_local(
         etat_technique=etat_technique,
         etat_metier=etat_metier,
     )
-    evaluation = evaluate_ai_recommendation(evidence_pack, use_ai=False)
+    evaluation = _server_validation_evaluation(evidence_pack)
     duree_totale = round(time.perf_counter() - mesure_debut, 4)
     recommendation = ValidatedDatasetRecommendation(
         source_code="WB",
@@ -1417,7 +1465,7 @@ def recommend_dataset_local(
             "type": "assistant_ia_local",
             "source_execution": source_execution,
             "triggered_by": triggered_by,
-            "pipeline_version": "ai_chain_v2",
+            "pipeline_version": "single_ai_v1",
             "run_id": run_id,
             "etat": etat_technique,
             "etat_technique": etat_technique,
@@ -1664,6 +1712,32 @@ def _build_evidence_pack(
     }
 
 
+def _server_validation_evaluation(evidence_pack: dict[str, Any]) -> dict[str, Any]:
+    backend_validation = evidence_pack.get("backend_validation") or {}
+    business_state = str(evidence_pack.get("backend_business_state") or "unknown")
+    technical_ok = bool(
+        backend_validation.get("source_valid")
+        and backend_validation.get("country_valid")
+        and backend_validation.get("indicators_exist_in_db")
+    )
+    decision = "approved" if technical_ok and business_state.startswith("valide") else "review"
+    return {
+        "mode": "server_validation",
+        "result": {
+            "judge_decision": decision,
+            "relevance_score": 80 if technical_ok else 40,
+            "directness_score": 80 if evidence_pack.get("selected_indicators") else 0,
+            "data_availability_score": 0,
+            "explanation": "Validation serveur locale sans appel IA evaluateur.",
+            "strengths": ["Les indicateurs retenus existent dans la base locale."] if technical_ok else [],
+            "weaknesses": [] if technical_ok else ["La recommandation doit etre verifiee dans le builder."],
+            "requires_human_review": business_state != "valide",
+            "explanation_affichee": "Validation serveur locale sans appel IA evaluateur.",
+        },
+        "error": None,
+    }
+
+
 def _build_decision_journal(
     *,
     user_request: str,
@@ -1709,7 +1783,7 @@ def _build_decision_journal(
         "type": "evaluation_assistant_ia",
         "source_execution": source_execution,
         "triggered_by": triggered_by,
-        "pipeline_version": "ai_chain_v2",
+        "pipeline_version": "single_ai_v1",
         "run_id": run_id,
         "etat": etat_technique,
         "etat_technique": etat_technique,
@@ -1810,7 +1884,7 @@ def _backend_weaknesses(
 ) -> list[str]:
     points: list[str] = []
     if analysis.ambiguity_level != "low":
-        points.append(f"Ambiguite declaree par la normalisation IA : {analysis.ambiguity_level}.")
+        points.append(f"Ambiguite detectee dans la demande : {analysis.ambiguity_level}.")
     if missing_required:
         points.append(
             "Indicateur direct obligatoire manquant : "

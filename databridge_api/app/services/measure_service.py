@@ -92,7 +92,7 @@ def _with_ai_traceability(evenement: dict[str, Any]) -> dict[str, Any]:
     payload = dict(evenement)
     payload.setdefault("source_execution", "unknown")
     payload.setdefault("triggered_by", "unknown")
-    payload.setdefault("pipeline_version", "ai_chain_v2")
+    payload.setdefault("pipeline_version", "single_ai_v1")
     payload.setdefault("run_id", f"ia-{uuid.uuid4().hex}")
     return payload
 

@@ -105,9 +105,9 @@ def main() -> None:
 
     print("Évaluation de l'assistant IA")
     if args.local_only:
-        print("Mode local uniquement : 0 appel Gemini prevu.")
+        print("Mode local uniquement : 0 appel IA prévu.")
     else:
-        print("Mode standard : les cas simples utilisent le mode local si AI_USE_LOCAL_FIRST=1; les cas complexes peuvent consommer Gemini.")
+        print("Mode standard : un seul appel IA maximum par cas, avec fallback local si nécessaire.")
     print("Cas | Résultat | État technique | État métier | Attendus | Obtenus | Durée | Erreurs")
 
     with SessionLocal() as db:
@@ -128,7 +128,7 @@ def main() -> None:
                         "type": "test_assistant_ia",
                         "source_execution": "tests_ai",
                         "triggered_by": "command_line",
-                        "pipeline_version": "ai_chain_v2",
+                        "pipeline_version": "single_ai_v1",
                         "run_id": run_id,
                         "cas": index,
                         "requete": case["input"],
@@ -162,7 +162,7 @@ def main() -> None:
                     "type": "test_assistant_ia",
                     "source_execution": "tests_ai",
                     "triggered_by": "command_line",
-                    "pipeline_version": "ai_chain_v2",
+                    "pipeline_version": "single_ai_v1",
                     "run_id": run_id,
                     "cas": index,
                     "requete": case["input"],
