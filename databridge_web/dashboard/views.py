@@ -26,7 +26,7 @@ from .audit import record_audit_event
 from .forms import DatasetCreateForm, SuperuserCreationForm, SuperuserPasswordResetForm
 from .services import api_client
 from .services.api_client import ApiError, BackendUnavailable
-
+from django.conf import settings
 
 DEFAULT_SOURCE_CODE = "WB"
 DEFAULT_START_DATE = date(2020, 1, 1).isoformat()
@@ -386,36 +386,155 @@ def _build_light_ai_recommendation(recommendation: dict[str, Any]) -> dict[str, 
     }
 
 
+def _looks_like_html_error(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    return (
+        "<!doctype html" in lowered
+        or "<html" in lowered
+        or "<title>502" in lowered
+        or "application loading" in lowered
+        or "service waking up" in lowered
+        or ("render.com" in lowered and "<style" in lowered)
+        or "bad gateway" in lowered
+    )
+
+
+def _safe_backend_error(exc_or_text: Exception | str | None) -> str | None:
+    if exc_or_text is None:
+        return None
+
+    text = str(exc_or_text).strip()
+
+    if not text:
+        return None
+
+    lowered = text.lower()
+
+    if _looks_like_html_error(text):
+        return (
+            "Serveur FastAPI temporairement indisponible ou en réveil Render. "
+            "Réessayez après quelques secondes."
+        )
+
+    if "127.0.0.1" in lowered or "localhost" in lowered:
+        return (
+            "Configuration invalide : une URL locale 127.0.0.1/localhost est encore utilisée. "
+            "En production, utilisez https://databridge-api.onrender.com."
+        )
+
+    if "connection refused" in lowered or "failed to establish a new connection" in lowered:
+        return "FastAPI est indisponible pour le moment. Vérifiez le service databridge-api."
+
+    if "read timed out" in lowered or "timeout" in lowered:
+        return "FastAPI met trop de temps à répondre. Réessayez après le réveil du service."
+
+    if "403" in lowered or "accès refusé" in lowered or "acces refuse" in lowered:
+        return "Accès refusé par FastAPI. Vérifiez que INTERNAL_API_TOKEN est identique dans Django et FastAPI."
+
+    if len(text) > 500:
+        return text[:500] + "..."
+
+    return text
+
+
+def _public_api_base_url() -> str:
+    return str(getattr(settings, "FASTAPI_BASE_URL", "")).rstrip("/")
+
+
+def _normalise_public_export_url(url: str | None) -> str | None:
+    if not url:
+        return url
+
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+
+    if hostname not in {"127.0.0.1", "localhost"}:
+        return url
+
+    public_base = _public_api_base_url()
+
+    if not public_base:
+        return url
+
+    public_parsed = urlparse(public_base)
+
+    return urlunparse(
+        parsed._replace(
+            scheme=public_parsed.scheme,
+            netloc=public_parsed.netloc,
+        )
+    )
+
+
+def _normalise_export_links(links: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(links, dict):
+        return links
+
+    cleaned = dict(links)
+
+    for key in ("csv_url", "json_url", "data_url", "url", "download_url"):
+        if key in cleaned:
+            cleaned[key] = _normalise_public_export_url(cleaned.get(key))
+
+    return cleaned
+
+
+
 def _assistant_error_message(exc: Exception) -> str:
     if isinstance(exc, BackendUnavailable):
-        return "API FastAPI indisponible. Vérifiez que le serveur backend est lancé."
+        return (
+            "API FastAPI indisponible temporairement. "
+            "Ouvrez https://databridge-api.onrender.com/healthz pour réveiller le backend, puis réessayez."
+        )
 
     if isinstance(exc, ApiError):
         payload_text = json.dumps(exc.payload, ensure_ascii=False) if exc.payload else ""
         message_text = f"{exc} {payload_text}".lower()
 
+        if _looks_like_html_error(message_text):
+            return (
+                "FastAPI a retourné une page Render/HTML au lieu d'une réponse JSON. "
+                "Le backend est probablement en réveil ou indisponible."
+            )
+
         if exc.status_code == 400:
             if any(term in message_text for term in ("0 candidat", "aucun candidat", "no candidate", "local")):
                 return (
                     "Aucun indicateur local correspondant n’a été trouvé. "
-                    "Reformulez la demande avec un domaine économique plus précis."
+                    "Pour ce thème, ajoutez des règles locales ou utilisez une demande plus précise."
                 )
+
+            if "mode local" in message_text or "local" in message_text:
+                return (
+                    "Le mode local ne reconnaît pas encore cette demande. "
+                    "Ajoutez l’intention dans les règles métier locales."
+                )
+
             return (
                 "La demande n’a pas pu être traitée. "
                 "Vérifiez la formulation ou utilisez une requête plus précise."
             )
 
-        if exc.status_code == 503 or any(
+        if exc.status_code == 403:
+            return (
+                "FastAPI refuse la requête. Vérifiez que INTERNAL_API_TOKEN est identique "
+                "dans databridge-web et databridge-api."
+            )
+
+        if exc.status_code == 429:
+            return "Quota IA atteint. Réessayez plus tard ou utilisez le mode local."
+
+        if exc.status_code in {502, 503, 504} or any(
             term in message_text
-            for term in ("unavailable", "overloaded", "high demand", "surcharge", "503")
+            for term in ("unavailable", "overloaded", "high demand", "surcharge", "503", "502", "504")
         ):
-            return "Le service IA externe est temporairement saturé. Le mode règles locales reste disponible."
+            return "Le service IA/FastAPI est temporairement indisponible. Réessayez après quelques secondes."
 
         if "disabled" in message_text or "désactiv" in message_text:
             return "Assistant IA désactivé dans la configuration."
 
-    return "La recommandation n’a pas pu être générée. Utilisez le mode règles locales ou reformulez la demande."
-
+    safe_error = _safe_backend_error(exc)
+    return safe_error or "La recommandation n’a pas pu être générée. Utilisez le mode règles locales ou reformulez la demande."
 
 def ai_assistant(request):
     recommendation = None
@@ -436,6 +555,13 @@ def ai_assistant(request):
                         user_request,
                         local_only=action == "generate_local",
                     )
+
+                    light_recommendation = _build_light_ai_recommendation(recommendation)
+
+                    request.session["ai_recommendation"] = light_recommendation
+                    request.session["ai_user_request"] = user_request
+                    request.session.modified = True
+
                     record_audit_event(
                         request,
                         action="assistant_ia_launched",
@@ -447,11 +573,10 @@ def ai_assistant(request):
                             "status": "success",
                         },
                     )
-                    request.session["ai_recommendation"] = _build_light_ai_recommendation(recommendation)
-                    request.session["ai_user_request"] = user_request
-                    request.session.modified = True
+
                     if recommendation.get("source_execution") == "local_rules":
                         messages.info(request, "Proposition locale construite sans appel au fournisseur IA.")
+
                 except ApiError as exc:
                     if exc.status_code == 429 and exc.payload.get("error_type") == "ai_quota_exceeded":
                         retry_after = exc.payload.get("retry_after_seconds")
@@ -461,31 +586,44 @@ def ai_assistant(request):
                             error = "Quota IA atteint. Réessayez plus tard ou utilisez la proposition locale."
                     else:
                         error = _assistant_error_message(exc)
+
                     record_audit_event(
                         request,
                         action="assistant_ia_failed",
                         object_type="assistant_ia",
-                        extra={"status_code": exc.status_code, "local_only": action == "generate_local"},
+                        extra={
+                            "status_code": exc.status_code,
+                            "local_only": action == "generate_local",
+                        },
                     )
+
                 except BackendUnavailable as exc:
                     error = _assistant_error_message(exc)
                     record_audit_event(
                         request,
                         action="assistant_ia_failed",
                         object_type="assistant_ia",
-                        extra={"reason": "backend_unavailable", "local_only": action == "generate_local"},
+                        extra={
+                            "reason": "backend_unavailable",
+                            "local_only": action == "generate_local",
+                        },
                     )
+
                 except Exception as exc:
                     error = _assistant_error_message(exc)
                     record_audit_event(
                         request,
                         action="assistant_ia_failed",
                         object_type="assistant_ia",
-                        extra={"reason": exc.__class__.__name__, "local_only": action == "generate_local"},
+                        extra={
+                            "reason": exc.__class__.__name__,
+                            "local_only": action == "generate_local",
+                        },
                     )
 
         elif action in {"use_in_builder", "apply"}:
             prefill = None
+
             if request.session.get("ai_recommendation"):
                 prefill = _build_builder_prefill(request.session["ai_recommendation"])
                 request.session["builder_prefill"] = prefill
@@ -1036,7 +1174,10 @@ def ajax_topics(request):
             search=request.GET.get("search", ""),
         )
     except (BackendUnavailable, ApiError) as exc:
-        return JsonResponse({"ok": False, "message": str(exc), "items": []}, status=503)
+        return JsonResponse(
+            {"ok": False, "message": _safe_backend_error(exc), "items": []},
+            status=503,
+        )
     return JsonResponse({"ok": True, "items": data})
 
 
@@ -1045,6 +1186,7 @@ def ajax_indicators(request):
     page = max(1, _clean_int(request.GET.get("page")) or 1)
     page_size = min(100, max(10, _clean_int(request.GET.get("page_size")) or INDICATOR_PAGE_SIZE))
     topic_id = _clean_int(request.GET.get("topic_id"))
+
     if topic_id is None:
         return JsonResponse(
             {
@@ -1059,7 +1201,9 @@ def ajax_indicators(request):
                 },
             }
         )
+
     offset = (page - 1) * page_size
+
     try:
         data = api_client.get_indicators(
             source_code=request.GET.get("source_code") or None,
@@ -1069,8 +1213,13 @@ def ajax_indicators(request):
             offset=offset,
         )
     except (BackendUnavailable, ApiError) as exc:
-        return JsonResponse({"ok": False, "message": str(exc), "items": []}, status=503)
+        return JsonResponse(
+            {"ok": False, "message": _safe_backend_error(exc), "items": []},
+            status=503,
+        )
+
     has_next = len(data) > page_size
+
     return JsonResponse(
         {
             "ok": True,
@@ -1090,7 +1239,10 @@ def ajax_countries(request):
     try:
         data = api_client.get_countries(search=request.GET.get("search", ""), limit=80)
     except (BackendUnavailable, ApiError) as exc:
-        return JsonResponse({"ok": False, "message": str(exc), "items": []}, status=503)
+        return JsonResponse(
+            {"ok": False, "message": _safe_backend_error(exc), "items": []},
+            status=503,
+        )
     return JsonResponse({"ok": True, "items": data})
 
 
@@ -1233,7 +1385,7 @@ def _load_datasets() -> tuple[list[dict[str, Any]], str | None]:
     try:
         return api_client.get_export_datasets(), None
     except (BackendUnavailable, ApiError) as exc:
-        return [], str(exc)
+        return [], _safe_backend_error(exc)
 
 
 def _load_builder_catalog(
@@ -1288,7 +1440,7 @@ def _load_source_limits() -> tuple[dict[str, Any], str | None]:
     try:
         limits = api_client.get_source_limits()
     except (BackendUnavailable, ApiError) as exc:
-        return DEFAULT_SOURCE_LIMITS, str(exc)
+        return DEFAULT_SOURCE_LIMITS, _safe_backend_error(exc)
     return limits or DEFAULT_SOURCE_LIMITS, None
 
 

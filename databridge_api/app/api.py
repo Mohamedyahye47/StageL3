@@ -346,20 +346,33 @@ def api_export_dataset_csv(
     try:
         csv_text = export_dataset_csv(db, slug, token)
     except PublishError as exc:
-        record_export_access(db, slug=slug, export_format="csv", request=request, status="refused", error_message=str(exc))
+        record_export_access(
+            db,
+            slug=slug,
+            export_format="csv",
+            request=request,
+            status="refused",
+            error_message=str(exc),
+        )
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    record_export_access(db, slug=slug, export_format="csv", request=request, status="success")
-    # Always use text/plain when not an explicit download so the browser
-    # renders the content inline (same behaviour as the JSON endpoint).
-    # Chrome forces a download for text/csv regardless of Content-Disposition.
+
+    record_export_access(
+        db,
+        slug=slug,
+        export_format="csv",
+        request=request,
+        status="success",
+    )
+
     disposition_type = "attachment" if download else "inline"
-    media_type = "text/csv; charset=utf-8" if download else "text/plain; charset=utf-8"
+
     return Response(
         content=csv_text,
-        media_type=media_type,
+        media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'{disposition_type}; filename="{slug}.csv"',
             "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
         },
     )
 

@@ -236,7 +236,7 @@ Normalize the request and return structured data.
 Strict rules:
 - Do NOT recommend indicator codes.
 - Do NOT invent World Bank codes.
-- topic_intent must be one of: population, inflation, economic_growth, unemployment, trade, health, education, general.
+- topic_intent must be one of: population, inflation, economic_growth, poverty, unemployment, trade, health, education, general.
 - requested_concepts must describe the real concepts requested by the user.
 - Return only search keywords that can be used to search a local indicator catalogue.
 - source_code should usually be "WB".
@@ -251,6 +251,7 @@ Strict rules:
 - Keywords should include French and English terms when useful.
 - If the request says "individus", map the concept to population/demography.
 - If the request says "inflation", keep topic_intent as inflation, never environment.
+- If the request says "pauvreté", "pauvrete" or "poverty", keep topic_intent as poverty and mention poverty, income and living conditions concepts.
 - If the request says "croissance economique", keep topic_intent as economic_growth and mention GDP/PIB concepts.
 - ambiguity_level should be low for clear country/domain/date requests, otherwise medium or high.
 - Return only structured data matching the schema.
@@ -1450,14 +1451,22 @@ def recommend_dataset_local(
 
 def _detect_local_intent(user_request: str) -> str | None:
     text = normalize_for_rules(user_request)
+
     if any(term in text for term in ("gpd", "gdp", "pib", "croissance economique")):
         return "economic_growth"
+
     if "inflation" in text or "prix a la consommation" in text or "cpi" in text:
         return "inflation"
+
+    if any(term in text for term in ("pauvrete", "poverty", "seuil de pauvrete", "conditions de vie", "inegalite", "revenu")):
+        return "poverty"
+
     if any(term in text for term in ("population", "habitants", "individus", "demographie")):
         return "population"
+
     if any(term in text for term in ("chomage", "chomeur", "chomeurs", "unemployment")):
         return "unemployment"
+
     return None
 
 
@@ -1485,11 +1494,14 @@ def _local_concepts_for_intent(intent: str, *, correction_detectee: str | None) 
     concepts = {
         "economic_growth": ["PIB", "GDP", "croissance economique"],
         "inflation": ["inflation", "prix a la consommation", "indice des prix"],
+        "poverty": ["pauvreté", "poverty", "seuil de pauvreté", "revenu", "inégalité", "conditions de vie"],
         "population": ["population totale", "habitants", "demographie"],
         "unemployment": ["chomage", "emploi", "population active"],
     }.get(intent, [intent])
+
     if correction_detectee:
         concepts = [*concepts, "correction GPD vers GDP"]
+
     return concepts
 
 
@@ -1497,6 +1509,7 @@ def _local_title(intent: str, country_name: str) -> str:
     labels = {
         "economic_growth": f"PIB et croissance economique - {country_name}",
         "inflation": f"Inflation - {country_name}",
+        "poverty": f"Pauvreté et conditions de vie - {country_name}",
         "population": f"Population - {country_name}",
         "unemployment": f"Taux de chomage - {country_name}",
     }
@@ -1507,11 +1520,14 @@ def _local_description(intent: str, country_name: str, start_year: int) -> str:
     descriptions = {
         "economic_growth": "Ce jeu de donnees presente les indicateurs principaux du PIB et de la croissance economique.",
         "inflation": "Ce jeu de donnees presente l'inflation mesuree par les prix a la consommation.",
+        "poverty": "Ce jeu de donnees presente les indicateurs de pauvreté, de revenu et de conditions de vie disponibles dans le catalogue local.",
         "population": "Ce jeu de donnees presente l'evolution de la population totale et des indicateurs demographiques associes.",
-        "unemployment": "Ce jeu de donnees presente le taux de chomage et les indicateurs du marche du travail.",
+        "unemployment": "Ce jeu de donnees presente les indicateurs du chomage et de l'emploi disponibles dans le catalogue local.",
     }
-    base = descriptions.get(intent, "Ce jeu de donnees est construit a partir de la base locale.")
-    return f"{base} Pays : {country_name}. Periode conseillee : depuis {start_year}."
+    return descriptions.get(
+        intent,
+        f"Ce jeu de donnees presente les indicateurs disponibles pour {country_name} depuis {start_year}.",
+    )
 
 
 def _local_reason(intent: str, indicator: Indicator, *, correction_detectee: str | None) -> str:
