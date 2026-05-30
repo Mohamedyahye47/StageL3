@@ -126,6 +126,116 @@
       </div>
     </section>
 
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Richat Data Hub</span>
+          <h3>Publication OpenDataSoft</h3>
+          <p>
+            Cette fiche prépare les métadonnées publiques envoyées avec le lien CSV distant.
+            Le mode dry-run permet de vérifier le payload sans créer ni modifier de dataset.
+          </p>
+        </div>
+      </div>
+
+      {% if opendatasoft_error %}
+        <div class="alert alert-warning app-alert">{{ opendatasoft_error }}</div>
+      {% endif %}
+
+      {% if opendatasoft_result %}
+        {% if opendatasoft_result.status == "dry_run" %}
+          <div class="alert alert-info app-alert">Dry-run OpenDataSoft exécuté : aucune modification distante.</div>
+        {% elif opendatasoft_result.status == "published" %}
+          <div class="alert alert-success app-alert">Dataset publié sur OpenDataSoft.</div>
+        {% elif opendatasoft_result.status == "updated" %}
+          <div class="alert alert-success app-alert">Dataset OpenDataSoft mis à jour.</div>
+        {% elif opendatasoft_result.error %}
+          <div class="alert alert-warning app-alert">{{ opendatasoft_result.error }}</div>
+        {% endif %}
+      {% endif %}
+
+      {% if opendatasoft_metadata %}
+        <div class="info-grid">
+          <div class="info-row">
+            <span>Statut OpenDataSoft</span>
+            <strong>{{ opendatasoft_status|default:"Non publié" }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Identifiant stable</span>
+            <strong>{{ opendatasoft_metadata.dataset_id }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Titre public</span>
+            <strong>{{ opendatasoft_metadata.title }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Thème</span>
+            <strong>{{ opendatasoft_metadata.theme }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Source</span>
+            <strong>{{ opendatasoft_metadata.source }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Producteur</span>
+            <strong>{{ opendatasoft_metadata.producer }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Organisation</span>
+            <strong>{{ opendatasoft_metadata.organization }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Période</span>
+            <strong>{{ opendatasoft_metadata.period.start_date }} à {{ opendatasoft_metadata.period.end_date }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Couverture géographique</span>
+            <strong>{{ opendatasoft_metadata.geographic_coverage }}</strong>
+          </div>
+          <div class="info-row">
+            <span>URL CSV distante</span>
+            <strong class="text-break">{{ opendatasoft_metadata.csv_url }}</strong>
+          </div>
+          {% if opendatasoft_metadata.json_url %}
+            <div class="info-row">
+              <span>URL JSON optionnelle</span>
+              <strong class="text-break">{{ opendatasoft_metadata.json_url }}</strong>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="evaluation-box mt-3">
+          <strong>Description publique</strong>
+          <p>{{ opendatasoft_metadata.description }}</p>
+        </div>
+
+        <div class="chip-row mt-3">
+          {% for keyword in opendatasoft_metadata.keywords %}
+            <span class="soft-pill">{{ keyword }}</span>
+          {% endfor %}
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap mt-3">
+          <form method="post">
+            {% csrf_token %}
+            <button class="btn btn-primary" type="submit" name="action" value="publish_to_opendatasoft">
+              Publier sur OpenDataSoft
+            </button>
+          </form>
+          {% if opendatasoft_public_url %}
+            <a class="btn btn-soft" href="{{ opendatasoft_public_url }}" target="_blank" rel="noopener">
+              Ouvrir la fiche publique
+            </a>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="empty-state compact">
+          <strong>Métadonnées OpenDataSoft indisponibles</strong>
+          <p>La fiche publique n'a pas encore pu être préparée pour ce dataset.</p>
+        </div>
+      {% endif %}
+    </section>
+
     {# ── Metadata row ─────────────────────────────────── #}
     <section class="metric-grid detail-metrics">
       <article class="metric-card accent-blue">

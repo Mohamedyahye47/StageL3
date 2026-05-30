@@ -172,6 +172,10 @@ class ExportDatasetDetailOut(BaseModel):
     updated_at: str
     latest_version_detail: ExportDatasetVersionOut
     versions: list[ExportDatasetVersionOut] = Field(default_factory=list)
+    opendatasoft_metadata: dict[str, Any] | None = None
+    opendatasoft_status: str | None = None
+    opendatasoft_public_url: str | None = None
+    opendatasoft_last_result: dict[str, Any] | None = None
 
 
 class ExportLogOut(BaseModel):
@@ -186,6 +190,23 @@ class ExportLogOut(BaseModel):
     created_at: str
 
 
+class OpenDataSoftMetadataOut(BaseModel):
+    slug: str
+    opendatasoft_metadata: dict[str, Any]
+    opendatasoft_status: str | None = None
+    opendatasoft_public_url: str | None = None
+    opendatasoft_last_result: dict[str, Any] | None = None
+
+
+class OpenDataSoftPublishOut(BaseModel):
+    status: str
+    dry_run: bool
+    dataset_id: str
+    public_url: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+
+
 class ExportLinksOut(BaseModel):
     slug: str
     title: str
@@ -196,3 +217,6 @@ class ExportLinksOut(BaseModel):
     non_null_value_count: int
     indicator_count: int
     status: str
+    opendatasoft_metadata: dict[str, Any] | None = None
+    opendatasoft_status: str | None = None
+    opendatasoft_public_url: str | None = None

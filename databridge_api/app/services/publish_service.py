@@ -43,6 +43,10 @@ from app.models import (
 )
 from app.schemas import PublishDatasetIn
 from app.services.measure_service import enregistrer_mesure
+from app.services.opendatasoft_service import (
+    build_opendatasoft_metadata as _build_opendatasoft_metadata,
+    publish_to_opendatasoft,
+)
 
 WORLD_BANK_DATA_API_BASE = os.getenv("WB_API_BASE", "https://api.worldbank.org/v2").rstrip("/")
 WORLD_BANK_DATA_TIMEOUT = int(os.getenv("WB_DATA_TIMEOUT", os.getenv("WB_API_TIMEOUT", "60")))
@@ -226,6 +230,10 @@ def generate_export_links(db: Session, payload: PublishDatasetIn) -> dict[str, A
             )
         )
 
+    manifest["opendatasoft_metadata"] = build_opendatasoft_metadata(dataset, manifest)
+    manifest_json = json.dumps(manifest, ensure_ascii=False, indent=2)
+    dataset.build_json = manifest_json
+
     db.add(
         ExportLog(
             export_dataset_id=dataset.id,
@@ -251,6 +259,9 @@ def generate_export_links(db: Session, payload: PublishDatasetIn) -> dict[str, A
         "non_null_value_count": data_build.non_null_value_count,
         "indicator_count": len(context.indicators),
         "status": dataset.status,
+        "opendatasoft_metadata": manifest.get("opendatasoft_metadata"),
+        "opendatasoft_status": manifest.get("opendatasoft_status"),
+        "opendatasoft_public_url": manifest.get("opendatasoft_public_url"),
     }
     _enregistrer_mesure_dataset(
         type_mesure="generation_liens_dataset",
@@ -476,6 +487,7 @@ def get_dataset_detail(db: Session, slug: str) -> dict[str, Any] | None:
         (version for version in versions if version["version"] == dataset.latest_version),
         versions[0],
     )
+    manifest = latest_version.get("manifest") or {}
     return {
         "id": dataset.id,
         "slug": dataset.slug,
@@ -491,7 +503,86 @@ def get_dataset_detail(db: Session, slug: str) -> dict[str, Any] | None:
         "updated_at": dataset.updated_at,
         "latest_version_detail": latest_version,
         "versions": versions,
+        "opendatasoft_metadata": manifest.get("opendatasoft_metadata"),
+        "opendatasoft_status": manifest.get("opendatasoft_status"),
+        "opendatasoft_public_url": manifest.get("opendatasoft_public_url"),
+        "opendatasoft_last_result": manifest.get("opendatasoft_last_result"),
     }
+
+
+def build_opendatasoft_metadata(dataset: ExportDataset, manifest: dict[str, Any]) -> dict[str, Any]:
+    return _build_opendatasoft_metadata(dataset, manifest)
+
+
+def get_opendatasoft_metadata(db: Session, slug: str) -> dict[str, Any]:
+    dataset = _load_export_dataset_for_opendatasoft(db, slug)
+    manifest = _load_dataset_manifest(dataset)
+    metadata = build_opendatasoft_metadata(dataset, manifest)
+    return {
+        "slug": dataset.slug,
+        "opendatasoft_metadata": metadata,
+        "opendatasoft_status": manifest.get("opendatasoft_status"),
+        "opendatasoft_public_url": manifest.get("opendatasoft_public_url") or metadata.get("public_url"),
+        "opendatasoft_last_result": manifest.get("opendatasoft_last_result"),
+    }
+
+
+def publish_dataset_to_opendatasoft(db: Session, slug: str) -> dict[str, Any]:
+    dataset = _load_export_dataset_for_opendatasoft(db, slug)
+    manifest = _load_dataset_manifest(dataset)
+    metadata = build_opendatasoft_metadata(dataset, manifest)
+    manifest["opendatasoft_metadata"] = metadata
+
+    result = publish_to_opendatasoft(dataset, manifest)
+    manifest["opendatasoft_status"] = result.get("status")
+    manifest["opendatasoft_public_url"] = result.get("public_url")
+    manifest["opendatasoft_last_result"] = result
+    if result.get("status") in {"published", "updated"}:
+        manifest["opendatasoft_published_at"] = _utc_now()
+        dataset.status = "published_to_opendatasoft"
+
+    dataset.build_json = json.dumps(manifest, ensure_ascii=False, indent=2)
+    dataset.updated_at = _utc_now()
+    db.add(
+        ExportLog(
+            export_dataset_id=dataset.id,
+            action="publication_opendatasoft",
+            row_count=None,
+            non_null_value_count=None,
+            status="success" if result.get("status") in {"dry_run", "published", "updated"} else "error",
+            error_message=result.get("error"),
+            duration_seconds=None,
+            created_at=dataset.updated_at,
+        )
+    )
+    db.commit()
+    return result
+
+
+def _load_export_dataset_for_opendatasoft(db: Session, slug: str) -> ExportDataset:
+    dataset = db.scalar(
+        select(ExportDataset)
+        .options(
+            selectinload(ExportDataset.country),
+            selectinload(ExportDataset.source),
+            selectinload(ExportDataset.topic),
+            selectinload(ExportDataset.indicator_links).selectinload(ExportDatasetIndicator.indicator),
+        )
+        .where(ExportDataset.slug == slug)
+    )
+    if dataset is None:
+        raise ValidationError(f"Dataset '{slug}' introuvable.")
+    return dataset
+
+
+def _load_dataset_manifest(dataset: ExportDataset) -> dict[str, Any]:
+    try:
+        manifest = json.loads(dataset.build_json or "{}")
+    except json.JSONDecodeError as exc:
+        raise ValidationError("Manifest d'export illisible pour la publication OpenDataSoft.") from exc
+    if not isinstance(manifest, dict):
+        raise ValidationError("Manifest d'export invalide pour la publication OpenDataSoft.")
+    return manifest
 
 
 def list_dataset_versions(db: Session, slug: str) -> list[dict[str, Any]]:
@@ -807,9 +898,12 @@ def _build_manifest(
     csv_url = _build_export_url(context.slug, "csv")
     json_url = _build_export_url(context.slug, "json")
     indicator_codes = [indicator.code for indicator in context.indicators]
+    indicator_names = [indicator.name for indicator in context.indicators]
     source_ids = sorted({indicator.source_id for indicator in context.indicators})
     source_codes = sorted({context.source.code for _ in context.indicators})
+    source_names = sorted({context.source.name for _ in context.indicators})
     topic_ids = sorted({topic.id for topic in context.topics})
+    topic_names = sorted({topic.name for topic in context.topics})
     periodicities = [indicator.periodicity for indicator in context.indicators if indicator.periodicity]
     frequency = payload.frequency or _derive_frequency(periodicities)
     csv_path = f"/api/opendata/exports/{context.slug}.csv"
@@ -842,12 +936,18 @@ def _build_manifest(
         "source_ids": source_ids,
         "codes_sources": source_codes,
         "source_codes": source_codes,
+        "noms_sources": source_names,
+        "source_names": source_names,
         "ids_themes": topic_ids,
         "topic_ids": topic_ids,
+        "noms_themes": topic_names,
+        "topic_names": topic_names,
         "ids_indicateurs": [indicator.id for indicator in context.indicators],
         "indicator_ids": [indicator.id for indicator in context.indicators],
         "codes_indicateurs": indicator_codes,
         "indicator_codes": indicator_codes,
+        "noms_indicateurs": indicator_names,
+        "indicator_names": indicator_names,
         "date_debut": start_date,
         "start_date": start_date,
         "date_fin": end_date,

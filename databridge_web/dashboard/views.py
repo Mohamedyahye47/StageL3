@@ -992,6 +992,24 @@ def dataset_create(request):
 
 
 def dataset_detail(request, slug: str):
+    opendatasoft_result = None
+    opendatasoft_error = None
+    if request.method == "POST" and request.POST.get("action") == "publish_to_opendatasoft":
+        try:
+            opendatasoft_result = api_client.publish_to_opendatasoft(slug)
+            status = opendatasoft_result.get("status")
+            if status == "dry_run":
+                messages.info(request, "Mode dry-run : aucune publication réelle n'a été envoyée à OpenDataSoft.")
+            elif status == "published":
+                messages.success(request, "Dataset publié sur OpenDataSoft.")
+            elif status == "updated":
+                messages.success(request, "Dataset OpenDataSoft mis à jour.")
+            else:
+                messages.error(request, opendatasoft_result.get("error") or "Publication OpenDataSoft non aboutie.")
+        except (BackendUnavailable, ApiError) as exc:
+            opendatasoft_error = str(exc)
+            messages.error(request, opendatasoft_error)
+
     try:
         detail = api_client.get_dataset_detail(slug)
     except (BackendUnavailable, ApiError) as exc:
@@ -1009,6 +1027,22 @@ def dataset_detail(request, slug: str):
     json_url = detail.get("json_url") or _manifest_value(manifest, "json_url")
     csv_view_url = _url_with_query(csv_url, preview="1") if csv_url else None
     data_url = csv_url
+    opendatasoft_metadata = (
+        detail.get("opendatasoft_metadata")
+        or _manifest_value(manifest, "opendatasoft_metadata")
+    )
+    opendatasoft_status = detail.get("opendatasoft_status") or _manifest_value(manifest, "opendatasoft_status")
+    opendatasoft_public_url = detail.get("opendatasoft_public_url") or _manifest_value(manifest, "opendatasoft_public_url")
+    opendatasoft_last_result = detail.get("opendatasoft_last_result") or _manifest_value(manifest, "opendatasoft_last_result")
+    if not opendatasoft_metadata:
+        try:
+            metadata_response = api_client.get_opendatasoft_metadata(slug)
+            opendatasoft_metadata = metadata_response.get("opendatasoft_metadata")
+            opendatasoft_status = opendatasoft_status or metadata_response.get("opendatasoft_status")
+            opendatasoft_public_url = opendatasoft_public_url or metadata_response.get("opendatasoft_public_url")
+            opendatasoft_last_result = opendatasoft_last_result or metadata_response.get("opendatasoft_last_result")
+        except (BackendUnavailable, ApiError) as exc:
+            opendatasoft_error = opendatasoft_error or str(exc)
 
     preview = None
     preview_columns: list[str] = []
@@ -1036,6 +1070,12 @@ def dataset_detail(request, slug: str):
             "preview_error": preview_error,
             "preview_deferred": preview_deferred,
             "manifest_json": _pretty_manifest(manifest),
+            "opendatasoft_metadata": opendatasoft_metadata,
+            "opendatasoft_status": opendatasoft_status,
+            "opendatasoft_public_url": opendatasoft_public_url,
+            "opendatasoft_last_result": opendatasoft_last_result,
+            "opendatasoft_result": opendatasoft_result,
+            "opendatasoft_error": opendatasoft_error,
         },
     )
 

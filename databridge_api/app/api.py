@@ -22,6 +22,8 @@ from app.schemas import (
     ExportDatasetVersionOut,
     ExportLinksOut,
     IndicatorOut,
+    OpenDataSoftMetadataOut,
+    OpenDataSoftPublishOut,
     PublishDatasetIn,
     SourceOut,
     TopicOut,
@@ -51,8 +53,10 @@ from app.services.publish_service import (
     get_dashboard_datasets,
     get_dataset_detail,
     get_dataset_version_data_preview,
+    get_opendatasoft_metadata,
     list_dataset_versions,
     preview_dataset,
+    publish_dataset_to_opendatasoft,
     record_export_access,
 )
 from app.services.chart_service import build_export_chronology_png
@@ -385,6 +389,32 @@ def api_get_export_dataset(slug: str, db: Session = Depends(get_db)):
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Dataset '{slug}' introuvable.")
     return detail
+
+
+@api_router.get(
+    "/api/export-datasets/{slug}/opendatasoft-metadata",
+    response_model=OpenDataSoftMetadataOut,
+    tags=["OpenDataSoft"],
+    dependencies=[Depends(require_internal_token)],
+)
+def api_get_opendatasoft_metadata(slug: str, db: Session = Depends(get_db)):
+    try:
+        return get_opendatasoft_metadata(db, slug)
+    except PublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@api_router.post(
+    "/api/export-datasets/{slug}/publish-to-opendatasoft",
+    response_model=OpenDataSoftPublishOut,
+    tags=["OpenDataSoft"],
+    dependencies=[Depends(require_internal_token)],
+)
+def api_publish_to_opendatasoft(slug: str, db: Session = Depends(get_db)):
+    try:
+        return publish_dataset_to_opendatasoft(db, slug)
+    except PublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @api_router.post(

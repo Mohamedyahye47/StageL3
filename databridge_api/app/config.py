@@ -22,6 +22,10 @@ def _split_csv(value: str | None) -> list[str]:
     return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 
+def _env_bool(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _is_placeholder(value: str | None) -> bool:
     text = (value or "").strip().lower()
     return (
@@ -98,6 +102,14 @@ if IS_PRODUCTION and "*" in CORS_ALLOWED_ORIGINS:
 EXPORT_SCHEMA_MODE = (os.getenv("EXPORT_SCHEMA_MODE") or "public_human_readable").strip().lower()
 INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "")
 DATABRIDGE_EXPORT_TOKEN = os.getenv("DATABRIDGE_EXPORT_TOKEN", "")
+ODS_ENABLED = _env_bool("ODS_ENABLED", "0")
+ODS_DRY_RUN = _env_bool("ODS_DRY_RUN", "1")
+ODS_DOMAIN = _env_text("ODS_DOMAIN", "https://richat.opendatasoft.com").rstrip("/")
+ODS_API_KEY = os.getenv("ODS_API_KEY", "")
+ODS_DEFAULT_THEME = _env_text("ODS_DEFAULT_THEME", "Économie, finances, affaires, finances publiques")
+ODS_DEFAULT_LICENSE = _env_text("ODS_DEFAULT_LICENSE", "")
+ODS_PRODUCER = _env_text("ODS_PRODUCER", "Richat DataBridge")
+ODS_ORGANIZATION = _env_text("ODS_ORGANIZATION", "Richat Data Hub")
 
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "gemini").strip().lower()
 AI_OUTPUT_TYPE = (os.getenv("AI_OUTPUT_TYPE") or "dictionary").strip().lower()

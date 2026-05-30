@@ -143,6 +143,18 @@ def get_dataset_detail(slug: str) -> dict[str, Any]:
     return _request("GET", f"/api/export-datasets/{slug}")
 
 
+def get_opendatasoft_metadata(slug: str) -> dict[str, Any]:
+    return _request("GET", f"/api/export-datasets/{slug}/opendatasoft-metadata")
+
+
+def publish_to_opendatasoft(slug: str) -> dict[str, Any]:
+    return _request(
+        "POST",
+        f"/api/export-datasets/{slug}/publish-to-opendatasoft",
+        timeout=max(settings.REQUEST_TIMEOUT_SECONDS, 90),
+    )
+
+
 def get_dataset_versions(slug: str) -> list[dict[str, Any]]:
     return _request("GET", f"/api/export-datasets/{slug}/versions")
 

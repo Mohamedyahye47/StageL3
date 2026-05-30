@@ -652,9 +652,48 @@
       </article>
     </div>
 
+    {% if export_links.opendatasoft_metadata %}
+      <div class="panel mt-3">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">OpenDataSoft</span>
+            <h3>Fiche publique préparée</h3>
+            <p>Ces métadonnées seront utilisées depuis la fiche du jeu de données pour publier vers Richat Data Hub.</p>
+          </div>
+        </div>
+        <div class="info-grid">
+          <div class="info-row">
+            <span>Titre public</span>
+            <strong>{{ export_links.opendatasoft_metadata.title }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Thème</span>
+            <strong>{{ export_links.opendatasoft_metadata.theme }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Producteur</span>
+            <strong>{{ export_links.opendatasoft_metadata.producer }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Couverture</span>
+            <strong>{{ export_links.opendatasoft_metadata.geographic_coverage }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Période</span>
+            <strong>{{ export_links.opendatasoft_metadata.period.start_date }} à {{ export_links.opendatasoft_metadata.period.end_date }}</strong>
+          </div>
+        </div>
+        <div class="chip-row mt-3">
+          {% for keyword in export_links.opendatasoft_metadata.keywords %}
+            <span class="soft-pill">{{ keyword }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
     <div class="d-flex gap-2 flex-wrap mt-3">
       <a class="btn btn-soft" href="{% url 'dashboard:dataset_detail' export_links.slug %}">
-        Voir la fiche du jeu de données
+        Voir la fiche du jeu de données et publier
       </a>
       <a class="btn btn-outline-primary" href="{{ export_links.csv_url }}" target="_blank" rel="noopener">
         Ouvrir le CSV
