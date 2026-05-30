@@ -633,12 +633,11 @@ def infer_topic_from_indicators(
         if preferred_topic is not None:
             return preferred_topic
 
-    rows = db.execute(
+    topic_ids = db.scalars(
         select(IndicatorTopic.topic_id)
         .where(IndicatorTopic.indicator_id.in_(indicator_ids))
     ).all()
-
-    topic_ids = [row[0] for row in rows if row[0] is not None]
+    topic_ids = [topic_id for topic_id in topic_ids if topic_id is not None]
 
     if not topic_ids:
         return None

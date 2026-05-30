@@ -656,14 +656,11 @@ def _build_saved_export_data(
     if country is None:
         raise ValidationError("Le pays sauvegarde est invalide ou desactive.")
 
-    indicator_ids = [
-        row[0]
-        for row in db.execute(
-            select(ExportDatasetIndicator.indicator_id).where(
-                ExportDatasetIndicator.export_dataset_id == dataset.id
-            )
-        ).all()
-    ]
+    indicator_ids = db.scalars(
+        select(ExportDatasetIndicator.indicator_id).where(
+            ExportDatasetIndicator.export_dataset_id == dataset.id
+        )
+    ).all()
 
     if not indicator_ids:
         raise ValidationError("Aucun indicateur sauvegarde pour cet export.")
