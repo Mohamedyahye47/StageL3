@@ -506,6 +506,8 @@ def get_dataset_detail(db: Session, slug: str) -> dict[str, Any] | None:
         "opendatasoft_metadata": manifest.get("opendatasoft_metadata"),
         "opendatasoft_status": manifest.get("opendatasoft_status"),
         "opendatasoft_public_url": manifest.get("opendatasoft_public_url"),
+        "opendatasoft_last_error": manifest.get("opendatasoft_last_error"),
+        "opendatasoft_last_steps": manifest.get("opendatasoft_last_steps") or [],
         "opendatasoft_last_result": manifest.get("opendatasoft_last_result"),
     }
 
@@ -523,6 +525,8 @@ def get_opendatasoft_metadata(db: Session, slug: str) -> dict[str, Any]:
         "opendatasoft_metadata": metadata,
         "opendatasoft_status": manifest.get("opendatasoft_status"),
         "opendatasoft_public_url": manifest.get("opendatasoft_public_url") or metadata.get("public_url"),
+        "opendatasoft_last_error": manifest.get("opendatasoft_last_error"),
+        "opendatasoft_last_steps": manifest.get("opendatasoft_last_steps") or [],
         "opendatasoft_last_result": manifest.get("opendatasoft_last_result"),
     }
 
@@ -534,12 +538,17 @@ def publish_dataset_to_opendatasoft(db: Session, slug: str) -> dict[str, Any]:
     manifest["opendatasoft_metadata"] = metadata
 
     result = publish_to_opendatasoft(dataset, manifest)
+    last_steps = result.get("opendatasoft_last_steps") or []
     manifest["opendatasoft_status"] = result.get("status")
     manifest["opendatasoft_public_url"] = result.get("public_url")
+    manifest["opendatasoft_last_error"] = result.get("error")
+    manifest["opendatasoft_last_steps"] = last_steps
     manifest["opendatasoft_last_result"] = result
     if result.get("status") in {"published", "updated"}:
         manifest["opendatasoft_published_at"] = _utc_now()
         dataset.status = "published_to_opendatasoft"
+    else:
+        manifest.pop("opendatasoft_published_at", None)
 
     dataset.build_json = json.dumps(manifest, ensure_ascii=False, indent=2)
     dataset.updated_at = _utc_now()

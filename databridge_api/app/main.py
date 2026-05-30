@@ -16,7 +16,7 @@ for path in (API_ROOT, PROJECT_ROOT):
 from core import db as core_db
 
 from app.api import api_router
-from app.config import API_TITLE, CORS_ALLOWED_ORIGINS, IS_PRODUCTION
+from app.config import API_TITLE, CORS_ALLOWED_ORIGINS, DATABRIDGE_SEED_METADATA_ON_STARTUP, IS_PRODUCTION
 
 
 def _resolve_cors_origins() -> list[str]:
@@ -31,7 +31,8 @@ def _resolve_cors_origins() -> list[str]:
 async def lifespan(app: FastAPI):
     # Initialize core metadata tables and create any missing export tables.
     core_db.init_db()
-    core_db.seed_metadata(force=False)
+    if DATABRIDGE_SEED_METADATA_ON_STARTUP:
+        core_db.seed_metadata(force=False)
     yield
 
 
@@ -59,6 +60,11 @@ app.add_middleware(
 @app.get("/healthz", include_in_schema=False)
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.head("/healthz", include_in_schema=False)
+def healthz_head() -> None:
+    return None
 
 
 app.include_router(api_router)

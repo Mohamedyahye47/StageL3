@@ -175,6 +175,8 @@ class ExportDatasetDetailOut(BaseModel):
     opendatasoft_metadata: dict[str, Any] | None = None
     opendatasoft_status: str | None = None
     opendatasoft_public_url: str | None = None
+    opendatasoft_last_error: str | None = None
+    opendatasoft_last_steps: list[dict[str, Any]] = Field(default_factory=list)
     opendatasoft_last_result: dict[str, Any] | None = None
 
 
@@ -195,6 +197,8 @@ class OpenDataSoftMetadataOut(BaseModel):
     opendatasoft_metadata: dict[str, Any]
     opendatasoft_status: str | None = None
     opendatasoft_public_url: str | None = None
+    opendatasoft_last_error: str | None = None
+    opendatasoft_last_steps: list[dict[str, Any]] = Field(default_factory=list)
     opendatasoft_last_result: dict[str, Any] | None = None
 
 
@@ -205,6 +209,8 @@ class OpenDataSoftPublishOut(BaseModel):
     public_url: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+    opendatasoft_last_error: str | None = None
+    opendatasoft_last_steps: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ExportLinksOut(BaseModel):

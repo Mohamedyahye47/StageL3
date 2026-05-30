@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse, urlunparse, parse_qsl
 
@@ -28,6 +29,36 @@ ODS_TIMEOUT_SECONDS = 30
 class ODSApiError(Exception):
     status_code: int | None
     message: str
+
+
+@dataclass
+class ODSPublishContext:
+    dataset_id: str
+    dry_run: bool
+    steps: list[dict[str, Any]]
+
+    def add_step(
+        self,
+        *,
+        action: str,
+        method: str,
+        endpoint: str,
+        status_code: int | str | None,
+        response_text: str,
+        dataset_id: str | None = None,
+    ) -> None:
+        self.steps.append(
+            {
+                "action": action,
+                "method": method.upper(),
+                "endpoint": _safe_endpoint(endpoint),
+                "status_code": status_code,
+                "response_text": _redact_secret(response_text or ""),
+                "dataset_id": dataset_id or self.dataset_id,
+                "dry_run": self.dry_run,
+                "timestamp": _utc_timestamp(),
+            }
+        )
 
 
 def build_opendatasoft_metadata(dataset: Any, manifest: dict[str, Any]) -> dict[str, Any]:
@@ -129,8 +160,10 @@ def publish_to_opendatasoft(dataset: Any, manifest: dict[str, Any]) -> dict[str,
     payload = build_opendatasoft_payload(dataset, manifest)
     metadata = payload["databridge_metadata"]
     safe_payload = _safe_payload(payload)
+    context = ODSPublishContext(dataset_id=metadata["dataset_id"], dry_run=ODS_DRY_RUN, steps=[])
 
     if ODS_DRY_RUN:
+        _add_dry_run_steps(context, metadata["dataset_id"])
         return {
             "status": "dry_run",
             "dry_run": True,
@@ -138,29 +171,49 @@ def publish_to_opendatasoft(dataset: Any, manifest: dict[str, Any]) -> dict[str,
             "public_url": metadata["public_url"],
             "payload": safe_payload,
             "error": None,
+            "opendatasoft_last_error": None,
+            "opendatasoft_last_steps": context.steps,
         }
 
     if not ODS_ENABLED:
-        return _error_result(metadata, safe_payload, "Publication OpenDataSoft désactivée par configuration.")
+        return _error_result(metadata, safe_payload, "Publication OpenDataSoft désactivée par configuration.", context.steps)
     if not ODS_DOMAIN:
-        return _error_result(metadata, safe_payload, "ODS_DOMAIN n'est pas configuré.")
+        return _error_result(metadata, safe_payload, "ODS_DOMAIN n'est pas configuré.", context.steps)
     if not is_configured_secret(ODS_API_KEY):
-        return _error_result(metadata, safe_payload, "Clé API OpenDataSoft non configurée.")
+        return _error_result(metadata, safe_payload, "Clé API OpenDataSoft non configurée.", context.steps)
 
     try:
-        existing_uid = _find_dataset_uid(metadata["dataset_id"])
+        existing_uid = _find_dataset_uid(metadata["dataset_id"], context=context)
         dataset_payload = {key: value for key, value in payload.items() if key not in {"resource", "databridge_metadata"}}
         if existing_uid:
             dataset_uid = existing_uid
-            _ods_request("PUT", f"/api/automation/v1.0/datasets/{quote(dataset_uid)}/", json_payload=dataset_payload)
+            _ods_request(
+                "PUT",
+                f"/api/automation/v1.0/datasets/{quote(dataset_uid)}/",
+                json_payload=dataset_payload,
+                action="update_metadata",
+                context=context,
+            )
             status = "updated"
         else:
-            response = _ods_request("POST", "/api/automation/v1.0/datasets/", json_payload=dataset_payload)
+            response = _ods_request(
+                "POST",
+                "/api/automation/v1.0/datasets/",
+                json_payload=dataset_payload,
+                action="create_dataset",
+                context=context,
+            )
             dataset_uid = _extract_uid(response) or metadata["dataset_id"]
             status = "published"
 
-        _upsert_dataset_resource(dataset_uid, payload["resource"])
-        _ods_request("POST", f"/api/automation/v1.0/datasets/{quote(dataset_uid)}/publish/", json_payload={})
+        _upsert_dataset_resource(dataset_uid, payload["resource"], context=context)
+        _ods_request(
+            "POST",
+            f"/api/automation/v1.0/datasets/{quote(dataset_uid)}/publish/",
+            json_payload={},
+            action="publish_dataset",
+            context=context,
+        )
         return {
             "status": status,
             "dry_run": False,
@@ -168,9 +221,11 @@ def publish_to_opendatasoft(dataset: Any, manifest: dict[str, Any]) -> dict[str,
             "public_url": metadata["public_url"],
             "payload": safe_payload,
             "error": None,
+            "opendatasoft_last_error": None,
+            "opendatasoft_last_steps": context.steps,
         }
     except Exception as exc:
-        return _error_result(metadata, safe_payload, sanitize_opendatasoft_error(exc))
+        return _error_result(metadata, safe_payload, _ownership_aware_error(exc, context.steps), context.steps)
 
 
 def get_opendatasoft_public_url(dataset_id: str) -> str:
@@ -195,37 +250,53 @@ def sanitize_opendatasoft_error(error: Any) -> str:
     return _redact_secret(message)
 
 
-def _upsert_dataset_resource(dataset_uid: str, resource_payload: dict[str, Any]) -> None:
-    resource_uid = _find_resource_uid(dataset_uid, resource_payload)
+def _upsert_dataset_resource(dataset_uid: str, resource_payload: dict[str, Any], *, context: ODSPublishContext) -> None:
+    resource_uid = _find_resource_uid(dataset_uid, resource_payload, context=context)
     if resource_uid:
         _ods_request(
             "PUT",
             f"/api/automation/v1.0/datasets/{quote(dataset_uid)}/resources/{quote(resource_uid)}/",
             json_payload=resource_payload,
+            action="add_remote_csv",
+            context=context,
         )
     else:
         _ods_request(
             "POST",
             f"/api/automation/v1.0/datasets/{quote(dataset_uid)}/resources/",
             json_payload=resource_payload,
+            action="add_remote_csv",
+            context=context,
         )
 
 
-def _find_dataset_uid(dataset_id: str) -> str | None:
+def _find_dataset_uid(dataset_id: str, *, context: ODSPublishContext) -> str | None:
     try:
-        response = _ods_request("GET", f"/api/explore/v2.1/catalog/datasets/{quote(dataset_id)}")
+        response = _ods_request(
+            "GET",
+            f"/api/explore/v2.1/catalog/datasets/{quote(dataset_id)}",
+            action="check_existing",
+            context=context,
+        )
     except ODSApiError as exc:
         if exc.status_code == 404:
+            _replace_last_step_message(context, "Dataset absent dans OpenDataSoft : création nécessaire.")
             return None
         raise
     return _extract_uid(response) or dataset_id
 
 
-def _find_resource_uid(dataset_uid: str, resource_payload: dict[str, Any]) -> str | None:
+def _find_resource_uid(dataset_uid: str, resource_payload: dict[str, Any], *, context: ODSPublishContext) -> str | None:
     try:
-        response = _ods_request("GET", f"/api/automation/v1.0/datasets/{quote(dataset_uid)}/resources/")
+        response = _ods_request(
+            "GET",
+            f"/api/automation/v1.0/datasets/{quote(dataset_uid)}/resources/",
+            action="get_dataset",
+            context=context,
+        )
     except ODSApiError as exc:
         if exc.status_code == 404:
+            _replace_last_step_message(context, "Aucune ressource distante existante trouvée.")
             return None
         raise
     resources = response.get("results", response if isinstance(response, list) else [])
@@ -244,7 +315,14 @@ def _find_resource_uid(dataset_uid: str, resource_payload: dict[str, Any]) -> st
     return None
 
 
-def _ods_request(method: str, path: str, *, json_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _ods_request(
+    method: str,
+    path: str,
+    *,
+    json_payload: dict[str, Any] | None = None,
+    action: str,
+    context: ODSPublishContext,
+) -> dict[str, Any]:
     url = f"{ODS_DOMAIN.rstrip('/')}{path}"
     headers = {
         "Authorization": f"Apikey {ODS_API_KEY}",
@@ -262,10 +340,25 @@ def _ods_request(method: str, path: str, *, json_payload: dict[str, Any] | None 
             timeout=ODS_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
+        context.add_step(
+            action=action,
+            method=method,
+            endpoint=url,
+            status_code=None,
+            response_text="Connexion OpenDataSoft impossible.",
+        )
         raise ODSApiError(None, "Connexion OpenDataSoft impossible.") from exc
 
+    response_text = _response_message(response) if response.status_code >= 400 else _response_preview(response)
+    context.add_step(
+        action=action,
+        method=method,
+        endpoint=url,
+        status_code=response.status_code,
+        response_text=response_text,
+    )
     if response.status_code >= 400:
-        raise ODSApiError(response.status_code, _response_message(response))
+        raise ODSApiError(response.status_code, response_text)
     if response.status_code == 204 or not response.content:
         return {}
     try:
@@ -286,6 +379,74 @@ def _response_message(response: requests.Response) -> str:
     return _redact_secret(str(data))
 
 
+def _response_preview(response: requests.Response) -> str:
+    if response.status_code == 204 or not response.content:
+        return ""
+    try:
+        data = response.json()
+    except ValueError:
+        return _redact_secret(response.text[:800])
+    return _redact_secret(json.dumps(data, ensure_ascii=False, default=str)[:1200])
+
+
+def _add_dry_run_steps(context: ODSPublishContext, dataset_id: str) -> None:
+    planned_steps = [
+        ("check_existing", "GET", f"{ODS_DOMAIN.rstrip('/')}/api/explore/v2.1/catalog/datasets/{quote(dataset_id)}"),
+        ("create_dataset", "POST", f"{ODS_DOMAIN.rstrip('/')}/api/automation/v1.0/datasets/"),
+        ("update_metadata", "PUT", f"{ODS_DOMAIN.rstrip('/')}/api/automation/v1.0/datasets/{quote(dataset_id)}/"),
+        ("add_remote_csv", "POST", f"{ODS_DOMAIN.rstrip('/')}/api/automation/v1.0/datasets/{quote(dataset_id)}/resources/"),
+        ("publish_dataset", "POST", f"{ODS_DOMAIN.rstrip('/')}/api/automation/v1.0/datasets/{quote(dataset_id)}/publish/"),
+    ]
+    for action, method, endpoint in planned_steps:
+        context.add_step(
+            action=action,
+            method=method,
+            endpoint=endpoint,
+            status_code="skipped",
+            response_text="Dry-run : aucun appel OpenDataSoft destructif exécuté.",
+        )
+
+
+def _replace_last_step_message(context: ODSPublishContext, message: str) -> None:
+    if not context.steps:
+        return
+    context.steps[-1]["response_text"] = _redact_secret(message)
+
+
+def _ownership_aware_error(error: Any, steps: list[dict[str, Any]]) -> str:
+    message = sanitize_opendatasoft_error(error)
+    if _has_permission_ownership_risk(steps):
+        failed_action = _first_403_action(steps) or "publish_dataset"
+        return (
+            f"Échec à l’étape {failed_action} : permission insuffisante. "
+            "Le dataset existe déjà mais la clé API ne semble pas autorisée à le publier. "
+            "Supprimez le dataset existant, utilisez un nouveau slug, ou utilisez une clé avec des permissions de publication plus larges."
+        )
+    return message
+
+
+def _first_403_action(steps: list[dict[str, Any]]) -> str | None:
+    for step in steps:
+        if step.get("status_code") == 403:
+            return str(step.get("action") or "")
+    return None
+
+
+def _has_permission_ownership_risk(steps: list[dict[str, Any]]) -> bool:
+    existing_dataset_detected = any(
+        step.get("action") == "check_existing" and int(step.get("status_code") or 0) == 200
+        for step in steps
+        if isinstance(step.get("status_code"), int)
+    )
+    permission_failure = any(
+        step.get("action") in {"update_metadata", "add_remote_csv", "publish_dataset"}
+        and int(step.get("status_code") or 0) == 403
+        for step in steps
+        if isinstance(step.get("status_code"), int)
+    )
+    return existing_dataset_detected and permission_failure
+
+
 def _extract_uid(payload: dict[str, Any]) -> str | None:
     candidates = [
         payload.get("uid"),
@@ -303,7 +464,12 @@ def _safe_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(payload, ensure_ascii=False, default=str))
 
 
-def _error_result(metadata: dict[str, Any], payload: dict[str, Any], message: str) -> dict[str, Any]:
+def _error_result(
+    metadata: dict[str, Any],
+    payload: dict[str, Any],
+    message: str,
+    steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "status": "error",
         "dry_run": ODS_DRY_RUN,
@@ -311,6 +477,8 @@ def _error_result(metadata: dict[str, Any], payload: dict[str, Any], message: st
         "public_url": metadata["public_url"],
         "payload": payload,
         "error": _redact_secret(message),
+        "opendatasoft_last_error": _redact_secret(message),
+        "opendatasoft_last_steps": steps or [],
     }
 
 
@@ -412,3 +580,14 @@ def _redact_secret(value: str) -> str:
         text = text.replace(ODS_API_KEY, "[secret]")
     text = re.sub(r"(?i)(authorization|apikey|api_key|token)[^,\n\r]{0,120}", r"\1=[secret]", text)
     return text
+
+
+def _safe_endpoint(endpoint: str) -> str:
+    parsed = urlparse(endpoint)
+    if not parsed.query:
+        return _redact_secret(endpoint)
+    return _redact_secret(urlunparse(parsed._replace(query="")))
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(UTC).isoformat()

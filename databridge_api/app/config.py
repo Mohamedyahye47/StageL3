@@ -110,6 +110,7 @@ ODS_DEFAULT_THEME = _env_text("ODS_DEFAULT_THEME", "Économie, finances, affaire
 ODS_DEFAULT_LICENSE = _env_text("ODS_DEFAULT_LICENSE", "")
 ODS_PRODUCER = _env_text("ODS_PRODUCER", "Richat DataBridge")
 ODS_ORGANIZATION = _env_text("ODS_ORGANIZATION", "Richat Data Hub")
+DATABRIDGE_SEED_METADATA_ON_STARTUP = _env_bool("DATABRIDGE_SEED_METADATA_ON_STARTUP", "0")
 
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "gemini").strip().lower()
 AI_OUTPUT_TYPE = (os.getenv("AI_OUTPUT_TYPE") or "dictionary").strip().lower()

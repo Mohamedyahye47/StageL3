@@ -154,6 +154,57 @@
         {% endif %}
       {% endif %}
 
+      {% if opendatasoft_last_steps %}
+        <div class="evaluation-box mt-3">
+          <strong>Diagnostic OpenDataSoft</strong>
+          <p>
+            Ces étapes indiquent précisément où la publication distante s’est arrêtée.
+            Les secrets et headers d’autorisation ne sont jamais affichés.
+          </p>
+          <div class="table-responsive">
+            <table class="table app-table compact">
+              <thead>
+                <tr>
+                  <th>Étape</th>
+                  <th>Méthode</th>
+                  <th>Code</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for step in opendatasoft_last_steps %}
+                  <tr>
+                    <td>
+                      <strong>{{ step.action }}</strong>
+                      <small class="d-block text-muted">{{ step.endpoint }}</small>
+                    </td>
+                    <td>{{ step.method }}</td>
+                    <td>{{ step.status_code|default:"-" }}</td>
+                    <td>
+                      {% if step.status_code == 403 %}
+                        <strong>Permission insuffisante pour cette étape précise.</strong>
+                      {% elif step.status_code == 401 %}
+                        <strong>ODS_API_KEY invalide ou expirée.</strong>
+                      {% elif step.status_code == 400 %}
+                        <strong>Payload OpenDataSoft invalide ou source HTTP refusée.</strong>
+                      {% elif step.status_code == 404 %}
+                        <strong>Endpoint OpenDataSoft incorrect ou dataset introuvable.</strong>
+                      {% endif %}
+                      {% if step.response_text %}
+                        <span class="d-block">{{ step.response_text }}</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if opendatasoft_last_error %}
+            <div class="alert alert-warning app-alert mt-3">{{ opendatasoft_last_error }}</div>
+          {% endif %}
+        </div>
+      {% endif %}
+
       {% if opendatasoft_metadata %}
         <div class="info-grid">
           <div class="info-row">

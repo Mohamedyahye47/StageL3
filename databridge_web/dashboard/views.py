@@ -1035,6 +1035,12 @@ def dataset_detail(request, slug: str):
     )
     opendatasoft_status = detail.get("opendatasoft_status") or _manifest_value(manifest, "opendatasoft_status")
     opendatasoft_public_url = detail.get("opendatasoft_public_url") or _manifest_value(manifest, "opendatasoft_public_url")
+    opendatasoft_last_error = detail.get("opendatasoft_last_error") or _manifest_value(manifest, "opendatasoft_last_error")
+    opendatasoft_last_steps = (
+        detail.get("opendatasoft_last_steps")
+        or _manifest_value(manifest, "opendatasoft_last_steps")
+        or []
+    )
     opendatasoft_last_result = detail.get("opendatasoft_last_result") or _manifest_value(manifest, "opendatasoft_last_result")
     if not opendatasoft_metadata:
         try:
@@ -1042,9 +1048,18 @@ def dataset_detail(request, slug: str):
             opendatasoft_metadata = metadata_response.get("opendatasoft_metadata")
             opendatasoft_status = opendatasoft_status or metadata_response.get("opendatasoft_status")
             opendatasoft_public_url = opendatasoft_public_url or metadata_response.get("opendatasoft_public_url")
+            opendatasoft_last_error = opendatasoft_last_error or metadata_response.get("opendatasoft_last_error")
+            opendatasoft_last_steps = opendatasoft_last_steps or metadata_response.get("opendatasoft_last_steps") or []
             opendatasoft_last_result = opendatasoft_last_result or metadata_response.get("opendatasoft_last_result")
         except (BackendUnavailable, ApiError) as exc:
             opendatasoft_error = opendatasoft_error or str(exc)
+    if opendatasoft_result:
+        opendatasoft_last_error = (
+            opendatasoft_result.get("opendatasoft_last_error")
+            or opendatasoft_result.get("error")
+            or opendatasoft_last_error
+        )
+        opendatasoft_last_steps = opendatasoft_result.get("opendatasoft_last_steps") or opendatasoft_last_steps
 
     preview = None
     preview_columns: list[str] = []
@@ -1075,6 +1090,8 @@ def dataset_detail(request, slug: str):
             "opendatasoft_metadata": opendatasoft_metadata,
             "opendatasoft_status": opendatasoft_status,
             "opendatasoft_public_url": opendatasoft_public_url,
+            "opendatasoft_last_error": opendatasoft_last_error,
+            "opendatasoft_last_steps": opendatasoft_last_steps,
             "opendatasoft_last_result": opendatasoft_last_result,
             "opendatasoft_result": opendatasoft_result,
             "opendatasoft_error": opendatasoft_error,
