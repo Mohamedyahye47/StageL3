@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -47,11 +48,55 @@ MIN_SAFE_YEAR = 1960
 MAX_SAFE_YEAR = 2023
 DEFAULT_COUNTRY_NAME = "Mauritanie"
 WORLD_BANK_CODE_RE = re.compile(r"\b[A-Z]{1,5}(?:\.[A-Z0-9]{1,12}){2,}\b", re.IGNORECASE)
+logger = logging.getLogger(__name__)
 
 MAX_CANDIDATES = AI_MAX_CANDIDATES
 TARGET_INDICATORS = AI_TARGET_INDICATORS
 AI_PROVIDER = CONFIG_AI_PROVIDER
 AI_MODEL = CONFIG_AI_MODEL
+MAX_SEARCH_TERMS = 12
+SEARCH_CHUNK_SIZE = 3
+
+GENERIC_SEARCH_TERMS = {
+    "dataset",
+    "donnees",
+    "données",
+    "indicateur",
+    "indicateurs",
+    "mauritania",
+    "mauritanie",
+    "entre",
+    "avec",
+    "pour",
+    "source",
+    "banque",
+    "mondiale",
+    "world",
+    "bank",
+    "opendatasoft",
+    "csv",
+    "json",
+    "fiche",
+    "titre",
+    "description",
+    "theme",
+    "mots",
+    "cles",
+}
+PRIORITY_SEARCH_TERMS = (
+    "pib",
+    "gdp",
+    "commerce",
+    "exportations",
+    "importations",
+    "trade",
+    "inflation",
+    "ide",
+    "fdi",
+    "population",
+    "chomage",
+    "chômage",
+)
 
 COUNTRY_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
     "CHN": ("chine", "china", "chn", "cn", "republique populaire de chine"),
@@ -454,15 +499,75 @@ def build_search_terms(user_request: str, ai_keywords: list[str]) -> list[str]:
     Result:
     A safer search term list for the local DB.
     """
-
     raw_terms: list[str] = []
     raw_terms.extend(ai_keywords or [])
     raw_terms.extend(tokenize_text(user_request))
 
     expanded = expand_domain_terms(raw_terms)
+    exact_codes = extract_indicator_codes_from_request(
+        " ".join([user_request or "", *[str(term) for term in ai_keywords or []]])
+    )
 
-    # Hard cap to avoid huge SQL queries
-    return expanded[:40]
+    seen: set[str] = set()
+    selected: list[str] = []
+
+    def append_term(term: str | None) -> None:
+        clean = _clean_search_term(term)
+        if not clean:
+            return
+        if _is_generic_search_term(clean):
+            return
+        key = _search_term_key(clean)
+        if key in seen:
+            return
+        seen.add(key)
+        selected.append(_normalize_indicator_code(clean) if _looks_like_indicator_code(clean) else clean)
+
+    for code in exact_codes:
+        append_term(code)
+
+    expanded_by_key = {_search_term_key(term): term for term in [*expanded, *raw_terms] if _clean_search_term(term)}
+    for priority in PRIORITY_SEARCH_TERMS:
+        priority_key = _search_term_key(priority)
+        if priority_key in expanded_by_key:
+            append_term(expanded_by_key[priority_key])
+
+    for term in expanded:
+        append_term(term)
+        if len(selected) >= MAX_SEARCH_TERMS:
+            break
+
+    return selected[:MAX_SEARCH_TERMS]
+
+
+def _clean_search_term(term: str | None) -> str:
+    clean = str(term or "").strip().strip(".,;:()[]{}\"'")
+    return re.sub(r"\s+", " ", clean)
+
+
+def _search_term_key(term: str | None) -> str:
+    clean = _clean_search_term(term)
+    if _looks_like_indicator_code(clean):
+        return _normalize_indicator_code(clean)
+    return normalize_for_rules(clean).lower()
+
+
+def _is_generic_search_term(term: str | None) -> bool:
+    clean = _clean_search_term(term)
+    if not clean or clean.isdigit():
+        return True
+    if _looks_like_indicator_code(clean):
+        return False
+    return _search_term_key(clean) in {normalize_for_rules(item).lower() for item in GENERIC_SEARCH_TERMS}
+
+
+def _looks_like_indicator_code(term: str | None) -> bool:
+    clean = _clean_search_term(term)
+    return bool(re.fullmatch(r"[A-Z]{1,5}(?:\.[A-Z0-9]{1,12}){2,}", clean, flags=re.IGNORECASE))
+
+
+def _normalize_indicator_code(term: str) -> str:
+    return _clean_search_term(term).upper()
 
 
 def get_topic_names_for_indicators(db: Session, indicator_ids: list[int]) -> dict[int, list[str]]:
@@ -497,53 +602,221 @@ def search_candidate_indicators(
     The final server validation still rejects invented or unknown indicators.
     """
 
-    clean_keywords = [keyword.strip() for keyword in keywords if keyword.strip()]
-    exact_indicators = load_indicators_by_codes(db, exact_codes or [], source_id=source_id)
+    try:
+        return chunked_search_candidate_indicators(
+            db,
+            source_id=source_id,
+            keywords=keywords,
+            exact_codes=exact_codes,
+            limit=limit,
+        )
+    except Exception as exc:
+        if not _is_expression_tree_too_large_error(exc):
+            raise
+        logger.warning(
+            "candidate_search_expression_tree_too_large terms=%s limit=%s",
+            len(keywords or []),
+            limit,
+        )
+        return _fallback_simple_candidate_search(
+            db,
+            source_id=source_id,
+            keywords=keywords,
+            exact_codes=exact_codes,
+            limit=limit,
+        )
 
-    stmt = (
-        select(Indicator)
-        .outerjoin(IndicatorTopic, IndicatorTopic.indicator_id == Indicator.id)
-        .outerjoin(Topic, Topic.id == IndicatorTopic.topic_id)
+
+def chunked_search_candidate_indicators(
+    db: Session,
+    *,
+    source_id: int | None,
+    keywords: list[str],
+    exact_codes: list[str] | None = None,
+    limit: int = MAX_CANDIDATES,
+) -> list[Indicator]:
+    """
+    Turso/SQLite-friendly candidate search.
+
+    Instead of one giant OR expression, this function executes small queries
+    and merges the results in Python.
+    """
+    clean_keywords = _prepare_candidate_keywords(keywords, exact_codes=exact_codes)
+    code_terms = [_normalize_indicator_code(term) for term in clean_keywords if _looks_like_indicator_code(term)]
+    exact_indicators = load_indicators_by_codes(
+        db,
+        [*(exact_codes or []), *code_terms],
+        source_id=source_id,
     )
+
+    deduped: list[Indicator] = []
+    seen_ids: set[int] = set()
+
+    def append_many(indicators: list[Indicator]) -> None:
+        for indicator in indicators:
+            if indicator.id in seen_ids:
+                continue
+            seen_ids.add(indicator.id)
+            deduped.append(indicator)
+            if len(deduped) >= limit:
+                break
+
+    append_many(exact_indicators)
+    if len(deduped) >= limit:
+        logger.info(
+            "candidate_search_chunked terms=%s chunks=%s candidates=%s",
+            len(clean_keywords),
+            0,
+            len(deduped),
+        )
+        return deduped[:limit]
+
+    text_keywords = [keyword for keyword in clean_keywords if not _looks_like_indicator_code(keyword)]
+    chunk_count = 0
+    for chunk in _chunked(text_keywords, SEARCH_CHUNK_SIZE):
+        chunk_count += 1
+        rows = _search_indicator_keyword_chunk(
+            db,
+            source_id=source_id,
+            keywords=chunk,
+            limit=max(limit * 2, limit),
+            include_topic=True,
+        )
+        append_many(rows)
+        if len(deduped) >= limit:
+            break
+
+    logger.info(
+        "candidate_search_chunked terms=%s chunks=%s candidates=%s",
+        len(clean_keywords),
+        chunk_count,
+        len(deduped),
+    )
+    return deduped[:limit]
+
+
+def _prepare_candidate_keywords(keywords: list[str], *, exact_codes: list[str] | None) -> list[str]:
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    def append(term: str | None) -> None:
+        clean = _clean_search_term(term)
+        if not clean or _is_generic_search_term(clean):
+            return
+        key = _search_term_key(clean)
+        if key in seen:
+            return
+        seen.add(key)
+        selected.append(_normalize_indicator_code(clean) if _looks_like_indicator_code(clean) else clean)
+
+    for code in exact_codes or []:
+        append(code)
+    for keyword in keywords or []:
+        append(keyword)
+        if len(selected) >= MAX_SEARCH_TERMS:
+            break
+
+    return selected[:MAX_SEARCH_TERMS]
+
+
+def _search_indicator_keyword_chunk(
+    db: Session,
+    *,
+    source_id: int | None,
+    keywords: list[str],
+    limit: int,
+    include_topic: bool,
+) -> list[Indicator]:
+    if not keywords:
+        return []
+
+    stmt = select(Indicator)
+    if include_topic:
+        stmt = stmt.outerjoin(IndicatorTopic, IndicatorTopic.indicator_id == Indicator.id)
+        stmt = stmt.outerjoin(Topic, Topic.id == IndicatorTopic.topic_id)
 
     if source_id is not None:
         stmt = stmt.where(Indicator.source_id == source_id)
 
     conditions = []
+    for keyword in keywords[:SEARCH_CHUNK_SIZE]:
+        clean = _clean_search_term(keyword)
+        if not clean:
+            continue
+        if _looks_like_indicator_code(clean):
+            conditions.append(Indicator.code == _normalize_indicator_code(clean))
+            continue
+        pattern = f"%{clean}%"
+        keyword_conditions = [
+            Indicator.code.ilike(pattern),
+            Indicator.name.ilike(pattern),
+            Indicator.description.ilike(pattern),
+        ]
+        if include_topic:
+            keyword_conditions.append(Topic.name.ilike(pattern))
+        conditions.append(or_(*keyword_conditions))
 
-    for keyword in clean_keywords:
-        pattern = f"%{keyword}%"
+    if not conditions:
+        return []
 
-        conditions.append(
-            or_(
-                Indicator.code.ilike(pattern),
-                Indicator.name.ilike(pattern),
-                Indicator.description.ilike(pattern),
-                Topic.name.ilike(pattern),
-            )
-        )
+    stmt = stmt.where(or_(*conditions)).order_by(Indicator.code.asc()).limit(limit)
+    return db.scalars(stmt).all()
 
-    if conditions:
-        stmt = stmt.where(or_(*conditions))
 
-    stmt = stmt.order_by(Indicator.code.asc()).limit(limit * 3)
-
-    rows = db.scalars(stmt).all()
+def _fallback_simple_candidate_search(
+    db: Session,
+    *,
+    source_id: int | None,
+    keywords: list[str],
+    exact_codes: list[str] | None,
+    limit: int,
+) -> list[Indicator]:
+    clean_keywords = _prepare_candidate_keywords(keywords, exact_codes=exact_codes)
+    code_terms = [_normalize_indicator_code(term) for term in clean_keywords if _looks_like_indicator_code(term)]
+    exact_indicators = load_indicators_by_codes(
+        db,
+        [*(exact_codes or []), *code_terms],
+        source_id=source_id,
+    )
 
     deduped: list[Indicator] = []
     seen_ids: set[int] = set()
 
-    for indicator in [*exact_indicators, *rows]:
-        if indicator.id in seen_ids:
-            continue
+    def append_many(indicators: list[Indicator]) -> None:
+        for indicator in indicators:
+            if indicator.id in seen_ids:
+                continue
+            seen_ids.add(indicator.id)
+            deduped.append(indicator)
+            if len(deduped) >= limit:
+                break
 
-        seen_ids.add(indicator.id)
-        deduped.append(indicator)
-
+    append_many(exact_indicators)
+    for keyword in [item for item in clean_keywords if not _looks_like_indicator_code(item)][:5]:
         if len(deduped) >= limit:
             break
+        pattern = f"%{keyword}%"
+        stmt = select(Indicator).where(Indicator.name.ilike(pattern))
+        if source_id is not None:
+            stmt = stmt.where(Indicator.source_id == source_id)
+        stmt = stmt.order_by(Indicator.code.asc()).limit(limit)
+        append_many(db.scalars(stmt).all())
 
-    return deduped
+    logger.info(
+        "candidate_search_fallback terms=%s candidates=%s",
+        len(clean_keywords),
+        len(deduped),
+    )
+    return deduped[:limit]
+
+
+def _chunked(items: list[str], size: int) -> list[list[str]]:
+    return [items[index:index + size] for index in range(0, len(items), size)]
+
+
+def _is_expression_tree_too_large_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "expression tree is too large" in message or "maximum depth" in message
 
 
 def build_candidate_payload(db: Session, candidates: list[Indicator]) -> list[dict[str, Any]]:
