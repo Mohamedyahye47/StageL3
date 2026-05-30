@@ -46,6 +46,7 @@ DEFAULT_AI_END_YEAR = 2023
 MIN_SAFE_YEAR = 1960
 MAX_SAFE_YEAR = 2023
 DEFAULT_COUNTRY_NAME = "Mauritanie"
+WORLD_BANK_CODE_RE = re.compile(r"\b[A-Z]{1,5}(?:\.[A-Z0-9]{1,12}){2,}\b", re.IGNORECASE)
 
 MAX_CANDIDATES = AI_MAX_CANDIDATES
 TARGET_INDICATORS = AI_TARGET_INDICATORS
@@ -414,6 +415,35 @@ def tokenize_text(text: str) -> list[str]:
     ]
 
 
+def extract_indicator_codes_from_request(user_request: str) -> list[str]:
+    """Extract explicit World Bank indicator codes from free text."""
+    codes: list[str] = []
+    seen: set[str] = set()
+    for match in WORLD_BANK_CODE_RE.findall(user_request or ""):
+        code = match.strip(".,;:()[]{}").upper()
+        if code and code not in seen:
+            seen.add(code)
+            codes.append(code)
+    return codes
+
+
+def load_indicators_by_codes(
+    db: Session,
+    codes: list[str],
+    *,
+    source_id: int | None = None,
+) -> list[Indicator]:
+    if not codes:
+        return []
+    ordered_codes = list(dict.fromkeys(code.upper() for code in codes if code.strip()))
+    stmt = select(Indicator).where(Indicator.code.in_(ordered_codes))
+    if source_id is not None:
+        stmt = stmt.where(Indicator.source_id == source_id)
+    indicators = db.scalars(stmt).all()
+    by_code = {indicator.code.upper(): indicator for indicator in indicators}
+    return [by_code[code] for code in ordered_codes if code in by_code]
+
+
 def build_search_terms(user_request: str, ai_keywords: list[str]) -> list[str]:
     """
     Combines:
@@ -458,6 +488,7 @@ def search_candidate_indicators(
     *,
     source_id: int | None,
     keywords: list[str],
+    exact_codes: list[str] | None = None,
     limit: int = MAX_CANDIDATES,
 ) -> list[Indicator]:
     """
@@ -467,6 +498,7 @@ def search_candidate_indicators(
     """
 
     clean_keywords = [keyword.strip() for keyword in keywords if keyword.strip()]
+    exact_indicators = load_indicators_by_codes(db, exact_codes or [], source_id=source_id)
 
     stmt = (
         select(Indicator)
@@ -501,7 +533,7 @@ def search_candidate_indicators(
     deduped: list[Indicator] = []
     seen_ids: set[int] = set()
 
-    for indicator in rows:
+    for indicator in [*exact_indicators, *rows]:
         if indicator.id in seen_ids:
             continue
 
@@ -875,13 +907,15 @@ def _recommend_dataset_validated_with_ai(
     max_recommended_indicators = min(TARGET_INDICATORS, source_limit)
 
     debut = time.perf_counter()
+    exact_codes = extract_indicator_codes_from_request(user_request)
     keywords = build_search_terms(
         user_request,
-        [*analysis.search_keywords, *analysis.requested_concepts, analysis.topic_intent],
+        [*analysis.search_keywords, *analysis.requested_concepts, analysis.topic_intent, *exact_codes],
     )
     etapes["expansion_vocabulaire"] = {
         "duree_secondes": round(time.perf_counter() - debut, 4),
-        "resultat": f"{len(keywords)} terme(s)",
+        "resultat": f"{len(keywords)} terme(s); {len(exact_codes)} code(s) detecte(s)",
+        "codes_detectes": exact_codes,
     }
 
     debut = time.perf_counter()
@@ -889,6 +923,7 @@ def _recommend_dataset_validated_with_ai(
         db,
         source_id=source.id if source else None,
         keywords=keywords,
+        exact_codes=exact_codes,
         limit=max(MAX_CANDIDATES * 4, MAX_CANDIDATES),
     )
     etapes["recherche_locale"] = {
@@ -914,6 +949,8 @@ def _recommend_dataset_validated_with_ai(
         ),
         "intention": governed.intent,
     }
+    if not governed.candidates:
+        raise ValueError(_no_local_candidate_message(keywords=keywords, exact_codes=exact_codes, source=source))
 
     candidate_by_id = {indicator.id: indicator for indicator in governed.candidates}
     selected_models: list[Indicator] = []
@@ -1250,8 +1287,9 @@ def recommend_dataset_local(
     """
     mesure_debut = time.perf_counter()
     run_id = run_id or f"local-{uuid.uuid4().hex}"
-    local_intent = _detect_local_intent(user_request)
-    if local_intent is None:
+    exact_codes = extract_indicator_codes_from_request(user_request)
+    local_intent = _detect_local_intent(user_request) or _intent_from_indicator_codes(exact_codes)
+    if local_intent is None and not exact_codes:
         return None
 
     correction_detectee = _detect_local_correction(user_request)
@@ -1266,21 +1304,32 @@ def recommend_dataset_local(
     source_limit = get_source_indicator_limit("WB")
     source_label = get_source_label("WB")
     rule = BUSINESS_RULES.get(local_intent, {})
+    exact_selected = load_indicators_by_codes(db, exact_codes, source_id=source.id if source else None)
     selected_models = [
         indicator
-        for code in rule.get("direct_codes", ())
-        if (indicator := exact_code_available(db, code, source_id=source.id if source else None)) is not None
-    ][: min(TARGET_INDICATORS, source_limit)]
+        for indicator in [
+            *exact_selected,
+            *(
+                exact_code_available(db, code, source_id=source.id if source else None)
+                for code in rule.get("direct_codes", ())
+            ),
+        ]
+        if indicator is not None
+    ]
+    selected_models = list({indicator.id: indicator for indicator in selected_models}.values())[: min(TARGET_INDICATORS, source_limit)]
+    if exact_codes and not selected_models:
+        raise ValueError(_no_local_candidate_message(keywords=exact_codes, exact_codes=exact_codes, source=source))
     if not selected_models:
         return None
 
     start_year, end_year = _detect_year_range(user_request)
-    concepts = _local_concepts_for_intent(local_intent, correction_detectee=correction_detectee)
-    keywords = build_search_terms(user_request, [*concepts, local_intent])
+    concepts = _local_concepts_for_intent(local_intent or "general", correction_detectee=correction_detectee)
+    keywords = build_search_terms(user_request, [*concepts, local_intent or "general", *exact_codes])
     raw_candidates = search_candidate_indicators(
         db,
         source_id=source.id if source else None,
         keywords=keywords,
+        exact_codes=exact_codes,
         limit=max(MAX_CANDIDATES * 4, MAX_CANDIDATES),
     )
     governed = govern_indicator_candidates(
@@ -1292,10 +1341,10 @@ def recommend_dataset_local(
             country_name=country_name,
             start_year=start_year,
             end_year=end_year,
-            topic_intent=local_intent,
+            topic_intent=local_intent or "general",
             requested_concepts=concepts,
-            title=_local_title(local_intent, country_name),
-            description=_local_description(local_intent, country_name, start_year),
+            title=_local_title(local_intent or "general", country_name),
+            description=_local_description(local_intent or "general", country_name, start_year),
             search_keywords=keywords[:12],
             ambiguity_level="low",
             declared_confidence="medium",
@@ -1304,6 +1353,8 @@ def recommend_dataset_local(
         search_terms=keywords,
         limit=MAX_CANDIDATES,
     )
+    if not governed.candidates:
+        raise ValueError(_no_local_candidate_message(keywords=keywords, exact_codes=exact_codes, source=source))
 
     # Keep deterministic direct indicators in business-rule order.
     reason_by_id = {
@@ -1514,7 +1565,29 @@ def _detect_local_intent(user_request: str) -> str | None:
     if any(term in text for term in ("chomage", "chomeur", "chomeurs", "unemployment")):
         return "unemployment"
 
+    for intent in ("trade_external_sector", "foreign_direct_investment"):
+        rule = BUSINESS_RULES.get(intent, {})
+        if any(normalize_for_rules(trigger) in text for trigger in rule.get("triggers", ())):
+            return intent
+
     return None
+
+
+def _intent_from_indicator_codes(codes: list[str]) -> str | None:
+    code_set = {code.upper() for code in codes}
+    if code_set & {
+        "NE.TRD.GNFS.ZS",
+        "NE.EXP.GNFS.ZS",
+        "NE.IMP.GNFS.ZS",
+        "BX.GSR.GNFS.CD",
+        "BM.GSR.GNFS.CD",
+        "BN.CAB.XOKA.CD",
+        "FI.RES.TOTL.CD",
+    }:
+        return "trade_external_sector"
+    if any("KLT.DINV" in code for code in code_set):
+        return "foreign_direct_investment"
+    return "general" if code_set else None
 
 
 def _detect_local_correction(user_request: str) -> str | None:
@@ -1544,6 +1617,23 @@ def _local_concepts_for_intent(intent: str, *, correction_detectee: str | None) 
         "poverty": ["pauvreté", "poverty", "seuil de pauvreté", "revenu", "inégalité", "conditions de vie"],
         "population": ["population totale", "habitants", "demographie"],
         "unemployment": ["chomage", "emploi", "population active"],
+        "trade_external_sector": [
+            "commerce extérieur",
+            "exportations",
+            "importations",
+            "trade",
+            "external trade",
+            "balance commerciale",
+            "compte courant",
+            "réserves internationales",
+        ],
+        "foreign_direct_investment": [
+            "investissement direct étranger",
+            "IDE",
+            "FDI",
+            "foreign direct investment",
+            "investissements étrangers directs",
+        ],
     }.get(intent, [intent])
 
     if correction_detectee:
@@ -1559,6 +1649,8 @@ def _local_title(intent: str, country_name: str) -> str:
         "poverty": f"Pauvreté et conditions de vie - {country_name}",
         "population": f"Population - {country_name}",
         "unemployment": f"Taux de chomage - {country_name}",
+        "trade_external_sector": f"Commerce extérieur - {country_name}",
+        "foreign_direct_investment": f"Investissement direct étranger - {country_name}",
     }
     return labels.get(intent, f"Jeu de donnees - {country_name}")
 
@@ -1570,6 +1662,8 @@ def _local_description(intent: str, country_name: str, start_year: int) -> str:
         "poverty": "Ce jeu de donnees presente les indicateurs de pauvreté, de revenu et de conditions de vie disponibles dans le catalogue local.",
         "population": "Ce jeu de donnees presente l'evolution de la population totale et des indicateurs demographiques associes.",
         "unemployment": "Ce jeu de donnees presente les indicateurs du chomage et de l'emploi disponibles dans le catalogue local.",
+        "trade_external_sector": "Ce jeu de donnees presente les indicateurs du commerce exterieur, des exportations, des importations et de la vulnerabilite externe disponibles dans le catalogue local.",
+        "foreign_direct_investment": "Ce jeu de donnees presente les indicateurs d'investissement direct etranger, en entrees et en sorties, disponibles dans le catalogue local.",
     }
     return descriptions.get(
         intent,
@@ -1583,6 +1677,8 @@ def _local_reason(intent: str, indicator: Indicator, *, correction_detectee: str
         "inflation": "Indicateur direct de l'inflation ou des prix a la consommation.",
         "population": "Indicateur direct de population ou de demographie.",
         "unemployment": "Indicateur direct du taux de chomage.",
+        "trade_external_sector": "Indicateur direct du commerce exterieur ou de la vulnerabilite externe.",
+        "foreign_direct_investment": "Indicateur direct de l'investissement direct etranger.",
     }
     reason = reasons.get(intent, "Indicateur retenu par les regles locales.")
     if correction_detectee and indicator.code.startswith("NY.GDP"):
@@ -1593,6 +1689,19 @@ def _local_reason(intent: str, indicator: Indicator, *, correction_detectee: str
 def _is_ai_quota_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(fragment in text for fragment in ("429", "resource_exhausted", "quota exceeded", "retrydelay"))
+
+
+def _no_local_candidate_message(*, keywords: list[str], exact_codes: list[str], source: Source | None) -> str:
+    visible_keywords = ", ".join(keywords[:15]) or "-"
+    visible_codes = ", ".join(exact_codes) or "-"
+    source_label = source.code if source else "WB"
+    return (
+        "Aucun indicateur local correspondant n'a été trouvé. "
+        f"Source utilisée : {source_label}. "
+        f"Mots-clés utilisés : {visible_keywords}. "
+        f"Codes World Bank détectés : {visible_codes}. "
+        "Essayez un code World Bank exact ou vérifiez que l'indicateur existe dans le catalogue."
+    )
 
 
 def _extract_retry_after_seconds(exc: Exception) -> int | None:

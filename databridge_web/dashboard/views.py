@@ -474,6 +474,8 @@ def _assistant_error_message(exc: Exception) -> str:
 
         if exc.status_code == 400:
             if any(term in message_text for term in ("0 candidat", "aucun candidat", "no candidate", "local")):
+                if "mots-clés" in message_text or "mots-cles" in message_text or "codes world bank" in message_text:
+                    return str(exc)
                 return (
                     "Aucun indicateur local correspondant n’a été trouvé. "
                     "Pour ce thème, ajoutez des règles locales ou utilisez une demande plus précise."

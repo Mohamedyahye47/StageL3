@@ -49,10 +49,55 @@ BUSINESS_RULES: dict[str, dict[str, Any]] = {
             "Chomage",
         ),
     },
-    "trade": {
-        "label": "Commerce",
-        "triggers": ("commerce", "exportations", "importations", "trade"),
-        "direct_codes": ("NE.TRD.GNFS.ZS", "BX.GSR.GNFS.CD", "BM.GSR.GNFS.CD"),
+    "trade_external_sector": {
+        "label": "Commerce exterieur et secteur externe",
+        "triggers": (
+            "commerce exterieur",
+            "commerce extérieur",
+            "exportations",
+            "importations",
+            "trade",
+            "exports",
+            "imports",
+            "external trade",
+            "ouverture commerciale",
+            "dependance commerciale",
+            "dépendance commerciale",
+            "balance commerciale",
+            "solde courant",
+            "compte courant",
+            "reserves internationales",
+            "réserves internationales",
+        ),
+        "direct_codes": (
+            "NE.TRD.GNFS.ZS",
+            "NE.EXP.GNFS.ZS",
+            "NE.IMP.GNFS.ZS",
+            "BX.GSR.GNFS.CD",
+            "BM.GSR.GNFS.CD",
+            "BN.CAB.XOKA.CD",
+            "FI.RES.TOTL.CD",
+        ),
+        "required_if_available": (),
+        "forbidden_if_not_requested": (),
+    },
+    "foreign_direct_investment": {
+        "label": "Investissement direct etranger",
+        "triggers": (
+            "investissement direct etranger",
+            "investissement direct étranger",
+            "ide",
+            "fdi",
+            "foreign direct investment",
+            "investissements etrangers",
+            "investissements étrangers",
+        ),
+        "direct_codes": (
+            "BX.KLT.DINV.CD.WD",
+            "BX.KLT.DINV.WD.GD.ZS",
+            "BM.KLT.DINV.CD.WD",
+            "BM.KLT.DINV.WD.GD.ZS",
+        ),
         "required_if_available": (),
         "forbidden_if_not_requested": (),
     },
@@ -313,6 +358,10 @@ def _score_indicator(
     if intent == "economic_growth" and code.startswith("NY.GDP"):
         score += 80
     if intent == "unemployment" and code.startswith("SL.UEM"):
+        score += 80
+    if intent == "trade_external_sector" and code.startswith(("NE.", "BX.GSR", "BM.GSR", "BN.CAB", "FI.RES")):
+        score += 80
+    if intent == "foreign_direct_investment" and "KLT.DINV" in code:
         score += 80
 
     return score
