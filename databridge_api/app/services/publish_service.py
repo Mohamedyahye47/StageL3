@@ -45,7 +45,7 @@ from app.schemas import PublishDatasetIn
 from app.services.measure_service import enregistrer_mesure
 from app.services.opendatasoft_service import (
     build_opendatasoft_metadata as _build_opendatasoft_metadata,
-    publish_to_opendatasoft,
+    prepare_opendatasoft_package,
 )
 
 WORLD_BANK_DATA_API_BASE = os.getenv("WB_API_BASE", "https://api.worldbank.org/v2").rstrip("/")
@@ -531,34 +531,30 @@ def get_opendatasoft_metadata(db: Session, slug: str) -> dict[str, Any]:
     }
 
 
-def publish_dataset_to_opendatasoft(db: Session, slug: str) -> dict[str, Any]:
+def prepare_dataset_for_opendatasoft(db: Session, slug: str) -> dict[str, Any]:
     dataset = _load_export_dataset_for_opendatasoft(db, slug)
     manifest = _load_dataset_manifest(dataset)
     metadata = build_opendatasoft_metadata(dataset, manifest)
     manifest["opendatasoft_metadata"] = metadata
 
-    result = publish_to_opendatasoft(dataset, manifest)
+    result = prepare_opendatasoft_package(dataset, manifest)
     last_steps = result.get("opendatasoft_last_steps") or []
     manifest["opendatasoft_status"] = result.get("status")
     manifest["opendatasoft_public_url"] = result.get("public_url")
     manifest["opendatasoft_last_error"] = result.get("error")
     manifest["opendatasoft_last_steps"] = last_steps
     manifest["opendatasoft_last_result"] = result
-    if result.get("status") in {"published", "updated"}:
-        manifest["opendatasoft_published_at"] = _utc_now()
-        dataset.status = "published_to_opendatasoft"
-    else:
-        manifest.pop("opendatasoft_published_at", None)
+    manifest.pop("opendatasoft_published_at", None)
 
     dataset.build_json = json.dumps(manifest, ensure_ascii=False, indent=2)
     dataset.updated_at = _utc_now()
     db.add(
         ExportLog(
             export_dataset_id=dataset.id,
-            action="publication_opendatasoft",
+            action="preparation_opendatasoft",
             row_count=None,
             non_null_value_count=None,
-            status="success" if result.get("status") in {"dry_run", "published", "updated"} else "error",
+            status="success" if result.get("status") == "manual_package" else "error",
             error_message=result.get("error"),
             duration_seconds=None,
             created_at=dataset.updated_at,
@@ -566,7 +562,6 @@ def publish_dataset_to_opendatasoft(db: Session, slug: str) -> dict[str, Any]:
     )
     db.commit()
     return result
-
 
 def _load_export_dataset_for_opendatasoft(db: Session, slug: str) -> ExportDataset:
     dataset = db.scalar(

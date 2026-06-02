@@ -55,8 +55,8 @@ from app.services.publish_service import (
     get_dataset_version_data_preview,
     get_opendatasoft_metadata,
     list_dataset_versions,
+    prepare_dataset_for_opendatasoft,
     preview_dataset,
-    publish_dataset_to_opendatasoft,
     record_export_access,
 )
 from app.services.chart_service import build_export_chronology_png
@@ -405,14 +405,14 @@ def api_get_opendatasoft_metadata(slug: str, db: Session = Depends(get_db)):
 
 
 @api_router.post(
-    "/api/export-datasets/{slug}/publish-to-opendatasoft",
+    "/api/export-datasets/{slug}/prepare-opendatasoft",
     response_model=OpenDataSoftPublishOut,
     tags=["OpenDataSoft"],
     dependencies=[Depends(require_internal_token)],
 )
-def api_publish_to_opendatasoft(slug: str, db: Session = Depends(get_db)):
+def api_prepare_opendatasoft(slug: str, db: Session = Depends(get_db)):
     try:
-        return publish_dataset_to_opendatasoft(db, slug)
+        return prepare_dataset_for_opendatasoft(db, slug)
     except PublishError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

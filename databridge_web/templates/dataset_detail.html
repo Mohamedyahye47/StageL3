@@ -133,7 +133,7 @@
           <h3>Publication OpenDataSoft</h3>
           <p>
             Cette fiche prépare les métadonnées publiques envoyées avec le lien CSV distant.
-            Le mode dry-run permet de vérifier le payload sans créer ni modifier de dataset.
+            La publication reste manuelle : copiez ces éléments dans Richat Data Hub.
           </p>
         </div>
       </div>
@@ -143,12 +143,8 @@
       {% endif %}
 
       {% if opendatasoft_result %}
-        {% if opendatasoft_result.status == "dry_run" %}
-          <div class="alert alert-info app-alert">Dry-run OpenDataSoft exécuté : aucune modification distante.</div>
-        {% elif opendatasoft_result.status == "published" %}
-          <div class="alert alert-success app-alert">Dataset publié sur OpenDataSoft.</div>
-        {% elif opendatasoft_result.status == "updated" %}
-          <div class="alert alert-success app-alert">Dataset OpenDataSoft mis à jour.</div>
+        {% if opendatasoft_result.status == "manual_package" %}
+          <div class="alert alert-success app-alert">Paquet OpenDataSoft préparé : aucune modification distante automatique.</div>
         {% elif opendatasoft_result.error %}
           <div class="alert alert-warning app-alert">{{ opendatasoft_result.error }}</div>
         {% endif %}
@@ -158,8 +154,8 @@
         <div class="evaluation-box mt-3">
           <strong>Diagnostic OpenDataSoft</strong>
           <p>
-            Ces étapes indiquent précisément où la publication distante s’est arrêtée.
-            Les secrets et headers d’autorisation ne sont jamais affichés.
+            Ces étapes décrivent la préparation locale du paquet à copier dans OpenDataSoft.
+            Aucun secret ni header d’autorisation n’est affiché.
           </p>
           <div class="table-responsive">
             <table class="table app-table compact">
@@ -184,7 +180,7 @@
                       {% if step.status_code == 403 %}
                         <strong>Permission insuffisante pour cette étape précise.</strong>
                       {% elif step.status_code == 401 %}
-                        <strong>ODS_API_KEY invalide ou expirée.</strong>
+                        <strong>Accès OpenDataSoft refusé ou expiré.</strong>
                       {% elif step.status_code == 400 %}
                         <strong>Payload OpenDataSoft invalide ou source HTTP refusée.</strong>
                       {% elif step.status_code == 404 %}
@@ -269,8 +265,8 @@
         <div class="d-flex gap-2 flex-wrap mt-3">
           <form method="post">
             {% csrf_token %}
-            <button class="btn btn-primary" type="submit" name="action" value="publish_to_opendatasoft">
-              Publier sur OpenDataSoft
+            <button class="btn btn-primary" type="submit" name="action" value="prepare_opendatasoft">
+              Préparer pour OpenDataSoft
             </button>
           </form>
           {% if opendatasoft_public_url %}

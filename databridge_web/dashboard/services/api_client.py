@@ -1,13 +1,58 @@
 from __future__ import annotations
 
-from typing import Any
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
 
-import requests
-from django.conf import settings
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+API_ROOT = PROJECT_ROOT / "databridge_api"
+for path in (PROJECT_ROOT, API_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+from app import config as app_config
+from app.ai.registry import AIProviderConfigError, models_by_layer, providers_by_layer, validate_layer_config
+from app.database import get_db
+from app.schemas import (
+    AiRuntimeConfigIn,
+    AiRuntimeConfigOut,
+    CountryOut,
+    DatasetBuildPreviewOut,
+    ExportDatasetDataPreviewOut,
+    ExportDatasetDetailOut,
+    ExportDatasetListOut,
+    ExportDatasetVersionOut,
+    ExportLinksOut,
+    IndicatorOut,
+    OpenDataSoftMetadataOut,
+    OpenDataSoftPublishOut,
+    PublishDatasetIn,
+    SourceOut,
+    TopicOut,
+)
+from app.services import ai_assistant_service, ai_business_rules
+from app.services.ai_assistant_service import AIQuotaExceeded, recommend_dataset_validated
+from app.services.catalog_service import list_countries, list_indicators, list_sources, list_topics
+from app.services.chart_service import build_export_chronology_png
+from app.services.publish_service import (
+    PublishError,
+    check_export_mode as _check_export_mode,
+    delete_export_dataset as _delete_export_dataset,
+    generate_export_links as _generate_export_links,
+    get_dashboard_datasets,
+    get_dataset_detail as _get_dataset_detail,
+    get_dataset_version_data_preview,
+    get_opendatasoft_metadata as _get_opendatasoft_metadata,
+    list_dataset_versions,
+    prepare_dataset_for_opendatasoft,
+    preview_dataset as _preview_dataset,
+)
 
 
 class BackendUnavailable(Exception):
-    """Raised when the FastAPI backend cannot be reached."""
+    """Kept for view compatibility; internal service failures now raise ApiError."""
 
 
 class ApiError(Exception):
@@ -17,77 +62,46 @@ class ApiError(Exception):
         self.payload = payload or {}
 
 
-def _url(path: str) -> str:
-    if path.startswith(("http://", "https://")):
-        raise ValueError("Les appels API internes doivent utiliser un chemin relatif FastAPI.")
-    return f"{settings.FASTAPI_BASE_URL}{path}"
-
-
-def _headers(headers: dict[str, str] | None = None) -> dict[str, str]:
-    merged = dict(headers or {})
-    token = getattr(settings, "INTERNAL_API_TOKEN", "")
-    if token:
-        merged["X-Internal-Token"] = token
-    return merged
-
-
-def _request(method: str, path: str, **kwargs) -> Any:
-    timeout = kwargs.pop("timeout", settings.REQUEST_TIMEOUT_SECONDS)
-    kwargs["headers"] = _headers(kwargs.pop("headers", None))
+@contextmanager
+def _db_session() -> Iterator[Any]:
+    generator = get_db()
+    db = next(generator)
     try:
-        response = requests.request(method, _url(path), timeout=timeout, **kwargs)
-    except requests.RequestException as exc:
-        raise BackendUnavailable("API FastAPI indisponible. Vérifiez que le serveur backend est lancé.") from exc
-
-    if response.status_code >= 400:
+        yield db
+    finally:
         try:
-            body = response.json()
-        except ValueError:
-            body = {"message": response.text}
-        detail = body.get("detail", body) if isinstance(body, dict) else body
-        if isinstance(detail, dict):
-            message = detail.get("message") or detail.get("error") or "Une erreur API est survenue."
-            payload = detail
-        else:
-            message = str(detail or "Une erreur API est survenue.")
-            payload = body if isinstance(body, dict) else {}
-        raise ApiError(message, status_code=response.status_code, payload=payload)
-
-    if response.status_code == 204:
-        return None
-    return response.json()
+            next(generator)
+        except StopIteration:
+            pass
 
 
-def _request_raw(method: str, path: str, **kwargs) -> requests.Response:
-    timeout = kwargs.pop("timeout", settings.REQUEST_TIMEOUT_SECONDS)
-    kwargs["headers"] = _headers(kwargs.pop("headers", None))
+def _dump(schema: type[Any], value: Any) -> dict[str, Any]:
+    return schema.model_validate(value).model_dump(mode="json")
+
+
+def _dump_many(schema: type[Any], values: list[Any]) -> list[dict[str, Any]]:
+    return [_dump(schema, value) for value in values]
+
+
+def _publish_payload(payload: dict[str, Any]) -> PublishDatasetIn:
     try:
-        response = requests.request(method, _url(path), timeout=timeout, **kwargs)
-    except requests.RequestException as exc:
-        raise BackendUnavailable("API FastAPI indisponible. Verifiez que le serveur backend est lance.") from exc
+        return PublishDatasetIn.model_validate(payload)
+    except Exception as exc:
+        raise ApiError(str(exc), status_code=400) from exc
 
-    if response.status_code >= 400:
-        try:
-            body = response.json()
-        except ValueError:
-            body = {"message": response.text}
-        detail = body.get("detail", body) if isinstance(body, dict) else body
-        message = detail.get("message") if isinstance(detail, dict) else str(detail)
-        raise ApiError(message or "Une erreur API est survenue.", status_code=response.status_code, payload=body)
-    return response
+
+def _handle_publish_error(exc: PublishError) -> ApiError:
+    return ApiError(str(exc), status_code=getattr(exc, "status_code", 400))
 
 
 def get_sources() -> list[dict[str, Any]]:
-    return _request("GET", "/api/sources")
+    with _db_session() as db:
+        return _dump_many(SourceOut, list_sources(db))
 
 
 def get_topics(*, source_code: str | None = None, source_id: int | None = None, search: str = "") -> list[dict[str, Any]]:
-    params = {"search": search}
-    if source_code:
-        params["source_code"] = source_code
-    if source_id:
-        params["source_id"] = source_id
-    return _request("GET", "/api/topics", params=params)
+    with _db_session() as db:
+        return _dump_many(TopicOut, list_topics(db, source_code=source_code, source_id=source_id, search=search))
 
 
 def get_indicators(
@@ -98,111 +112,199 @@ def get_indicators(
     limit: int = 200,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"search": search, "limit": limit, "offset": offset}
-    if source_code:
-        params["source_code"] = source_code
-    if topic_id:
-        params["topic_id"] = topic_id
-    return _request("GET", "/api/indicators", params=params)
+    with _db_session() as db:
+        return _dump_many(
+            IndicatorOut,
+            list_indicators(db, source_code=source_code, topic_id=topic_id, search=search, limit=limit, offset=offset),
+        )
 
 
 def get_source_limits() -> dict[str, Any]:
-    return _request("GET", "/api/source-limits")
+    return {
+        code: {
+            "max_indicators_per_dataset": int(values["max_indicators_per_dataset"]),
+            "label": values["label"],
+        }
+        for code, values in app_config.SOURCE_LIMITS.items()
+    }
 
 
 def get_countries(*, search: str = "", limit: int = 50) -> list[dict[str, Any]]:
-    return _request("GET", "/api/countries", params={"search": search, "limit": limit})
+    with _db_session() as db:
+        return _dump_many(CountryOut, list_countries(db, search=search, limit=limit))
 
 
 def generate_export_links(payload: dict[str, Any]) -> dict[str, Any]:
-    return _request(
-        "POST",
-        "/api/datasets/generate-export-links",
-        json=payload,
-        timeout=max(settings.REQUEST_TIMEOUT_SECONDS, 90),
-    )
+    with _db_session() as db:
+        try:
+            return ExportLinksOut.model_validate(_generate_export_links(db, _publish_payload(payload))).model_dump(mode="json")
+        except PublishError as exc:
+            raise _handle_publish_error(exc) from exc
 
 
 def preview_dataset(payload: dict, limit: int = 50) -> dict:
-    """
-    Builds a real data preview through FastAPI.
-    This does not create an export configuration.
-    """
-    return _request(
-        "POST",
-        f"/api/datasets/preview?limit={limit}",
-        json=payload,
-    )
+    with _db_session() as db:
+        try:
+            return DatasetBuildPreviewOut.model_validate(_preview_dataset(db, _publish_payload(payload), limit=limit)).model_dump(mode="json")
+        except PublishError as exc:
+            raise _handle_publish_error(exc) from exc
 
 
 def get_export_datasets() -> list[dict[str, Any]]:
-    return _request("GET", "/api/export-datasets")
+    with _db_session() as db:
+        return _dump_many(ExportDatasetListOut, get_dashboard_datasets(db))
 
 
 def get_dataset_detail(slug: str) -> dict[str, Any]:
-    return _request("GET", f"/api/export-datasets/{slug}")
+    with _db_session() as db:
+        detail = _get_dataset_detail(db, slug)
+        if detail is None:
+            raise ApiError(f"Dataset '{slug}' introuvable.", status_code=404)
+        return ExportDatasetDetailOut.model_validate(detail).model_dump(mode="json")
 
 
 def get_opendatasoft_metadata(slug: str) -> dict[str, Any]:
-    return _request("GET", f"/api/export-datasets/{slug}/opendatasoft-metadata")
+    with _db_session() as db:
+        try:
+            return OpenDataSoftMetadataOut.model_validate(_get_opendatasoft_metadata(db, slug)).model_dump(mode="json")
+        except PublishError as exc:
+            raise _handle_publish_error(exc) from exc
 
 
-def publish_to_opendatasoft(slug: str) -> dict[str, Any]:
-    return _request(
-        "POST",
-        f"/api/export-datasets/{slug}/publish-to-opendatasoft",
-        timeout=max(settings.REQUEST_TIMEOUT_SECONDS, 90),
-    )
+def prepare_opendatasoft(slug: str) -> dict[str, Any]:
+    with _db_session() as db:
+        try:
+            return OpenDataSoftPublishOut.model_validate(prepare_dataset_for_opendatasoft(db, slug)).model_dump(mode="json")
+        except PublishError as exc:
+            raise _handle_publish_error(exc) from exc
 
 
 def get_dataset_versions(slug: str) -> list[dict[str, Any]]:
-    return _request("GET", f"/api/export-datasets/{slug}/versions")
+    with _db_session() as db:
+        versions = list_dataset_versions(db, slug)
+        if not versions:
+            raise ApiError(f"Dataset '{slug}' introuvable.", status_code=404)
+        return _dump_many(ExportDatasetVersionOut, versions)
 
 
 def get_dataset_preview(slug: str, version: int, *, limit: int = 25) -> dict[str, Any]:
-    return _request("GET", f"/api/export-datasets/{slug}/versions/{version}/data-preview", params={"limit": limit})
+    with _db_session() as db:
+        try:
+            preview = get_dataset_version_data_preview(db, slug, version, limit=limit)
+        except PublishError as exc:
+            raise _handle_publish_error(exc) from exc
+        if preview is None:
+            raise ApiError(f"Version '{version}' introuvable pour '{slug}'.", status_code=404)
+        return ExportDatasetDataPreviewOut.model_validate(preview).model_dump(mode="json")
 
 
 def get_export_health() -> dict[str, Any]:
-    return _request("GET", "/api/export/health")
+    return {
+        "ok": True,
+        "provider": app_config.REMOTE_PROVIDER,
+        "export_mode": app_config.PUBLISH_MODE,
+        "public_api_base_url": app_config.PUBLIC_API_BASE_URL,
+        "is_local_url": app_config.export_api_is_local(),
+        "opendatasoft_link_mode": True,
+        "source_limits": app_config.SOURCE_LIMITS,
+        "message": "API d'export active dans le serveur ASGI unifié.",
+    }
 
 
 def get_ai_dataset_recommendation(user_request: str, *, local_only: bool = False) -> dict:
-    """
-    Calls FastAPI AI assistant endpoint.
-    Django does not call AI providers directly.
-    Provider keys stay only in the FastAPI backend.
-    """
     if not user_request or not user_request.strip():
         raise ValueError("La demande utilisateur est obligatoire.")
+    with _db_session() as db:
+        try:
+            result = recommend_dataset_validated(
+                db,
+                user_request.strip(),
+                source_execution="assistant_ui",
+                triggered_by="user_click",
+                local_only=local_only,
+            )
+        except AIQuotaExceeded as exc:
+            raise ApiError(exc.to_payload()["message"], status_code=429, payload=exc.to_payload()) from exc
+        except ValueError as exc:
+            raise ApiError(str(exc), status_code=400) from exc
+        except RuntimeError as exc:
+            raise ApiError(str(exc), status_code=503) from exc
+        except Exception as exc:
+            raise ApiError(f"Erreur Assistant IA: {exc}", status_code=502) from exc
+        return result.model_dump(mode="json")
 
-    return _request(
-        "POST",
-        "/api/ai/recommend-dataset",
-        params={"local_only": "true"} if local_only else None,
-        json={"user_request": user_request.strip()},
+
+def _current_ai_runtime_config() -> AiRuntimeConfigOut:
+    layer_providers = providers_by_layer()
+    available_providers = {layer: values["available"] for layer, values in layer_providers.items()}
+    disabled_providers = {layer: values["disabled"] for layer, values in layer_providers.items()}
+    warnings: list[str] = []
+    try:
+        validate_layer_config("recommendation", ai_assistant_service.AI_PROVIDER, ai_assistant_service.AI_MODEL)
+    except AIProviderConfigError as exc:
+        warnings.append(f"recommendation: {exc}")
+    return AiRuntimeConfigOut(
+        AI_PROVIDER=ai_assistant_service.AI_PROVIDER,
+        AI_MODEL=ai_assistant_service.AI_MODEL,
+        AI_TEMPERATURE=ai_assistant_service.AI_TEMPERATURE,
+        AI_ENABLE_BUSINESS_RULES=ai_assistant_service.AI_ENABLE_BUSINESS_RULES,
+        AI_MAX_CANDIDATES=ai_assistant_service.MAX_CANDIDATES,
+        AI_TARGET_INDICATORS=ai_assistant_service.TARGET_INDICATORS,
+        WB_MAX_INDICATORS_PER_DATASET=app_config.SOURCE_LIMITS["WB"]["max_indicators_per_dataset"],
+        message="Configuration IA runtime active.",
+        providers_by_layer=available_providers,
+        disabled_providers_by_layer=disabled_providers,
+        models_by_layer=models_by_layer(),
+        warnings=warnings,
     )
 
 
 def get_ai_runtime_config() -> dict[str, Any]:
-    return _request("GET", "/api/ai/runtime-config")
+    return _current_ai_runtime_config().model_dump(mode="json")
 
 
 def update_ai_runtime_config(payload: dict[str, Any]) -> dict[str, Any]:
-    return _request("POST", "/api/ai/runtime-config", json=payload)
+    config = AiRuntimeConfigIn.model_validate(payload)
+    provider = config.AI_PROVIDER.strip().lower()
+    try:
+        validate_layer_config("recommendation", provider, config.AI_MODEL)
+    except AIProviderConfigError as exc:
+        raise ApiError(str(exc), status_code=400) from exc
+    ai_assistant_service.AI_PROVIDER = provider
+    ai_assistant_service.AI_MODEL = config.AI_MODEL.strip()
+    ai_assistant_service.AI_TEMPERATURE = config.AI_TEMPERATURE
+    ai_assistant_service.AI_ENABLE_BUSINESS_RULES = config.AI_ENABLE_BUSINESS_RULES
+    ai_assistant_service.MAX_CANDIDATES = config.AI_MAX_CANDIDATES
+    ai_assistant_service.TARGET_INDICATORS = config.AI_TARGET_INDICATORS
+    app_config.SOURCE_LIMITS["WB"]["max_indicators_per_dataset"] = config.WB_MAX_INDICATORS_PER_DATASET
+    ai_business_rules.AI_MAX_CANDIDATES = config.AI_MAX_CANDIDATES
+    current = _current_ai_runtime_config()
+    current.message = "Configuration IA appliquée en mémoire. Elle sera perdue au redémarrage du serveur ASGI."
+    return current.model_dump(mode="json")
 
 
 def check_export_mode() -> dict:
-    return _request("POST", "/api/export-datasets/check-mode")
+    with _db_session() as db:
+        return _check_export_mode(db)
 
 
 def delete_export_dataset(slug: str) -> dict:
-    return _request(
-        "DELETE",
-        f"/api/export-datasets/{slug}",
-    )
+    with _db_session() as db:
+        try:
+            return _delete_export_dataset(db, slug)
+        except PublishError as exc:
+            raise _handle_publish_error(exc) from exc
 
 
 def get_export_chronology_chart() -> tuple[bytes, str]:
-    response = _request_raw("GET", "/api/export/charts/chronology.png", timeout=settings.REQUEST_TIMEOUT_SECONDS)
-    return response.content, response.headers.get("content-type", "image/png")
+    with _db_session() as db:
+        try:
+            png = build_export_chronology_png(db)
+        except ModuleNotFoundError as exc:
+            raise ApiError(
+                "Le graphique nécessite matplotlib et seaborn.",
+                status_code=503,
+            ) from exc
+        if png is None:
+            raise ApiError("Aucun export.", status_code=404)
+        return png, "image/png"

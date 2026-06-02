@@ -394,17 +394,17 @@ def _safe_backend_error(exc_or_text: Exception | str | None) -> str | None:
     if "127.0.0.1" in lowered or "localhost" in lowered:
         return (
             "Configuration invalide : une URL locale 127.0.0.1/localhost est encore utilisée. "
-            "En production, utilisez https://databridge-api.onrender.com."
+            "En production, utilisez l'URL HTTPS du service ASGI unifié."
         )
 
     if "connection refused" in lowered or "failed to establish a new connection" in lowered:
-        return "FastAPI est indisponible pour le moment. Vérifiez le service databridge-api."
+        return "Le service interne est indisponible pour le moment. Vérifiez le serveur ASGI unifié."
 
     if "read timed out" in lowered or "timeout" in lowered:
-        return "FastAPI met trop de temps à répondre. Réessayez après le réveil du service."
+        return "Le service met trop de temps à répondre. Réessayez après le réveil Render."
 
     if "403" in lowered or "accès refusé" in lowered or "acces refuse" in lowered:
-        return "Accès refusé par FastAPI. Vérifiez que INTERNAL_API_TOKEN est identique dans Django et FastAPI."
+        return "Accès refusé par l'API interne. Vérifiez INTERNAL_API_TOKEN."
 
     if len(text) > 500:
         return text[:500] + "..."
@@ -413,7 +413,7 @@ def _safe_backend_error(exc_or_text: Exception | str | None) -> str | None:
 
 
 def _public_api_base_url() -> str:
-    return str(getattr(settings, "FASTAPI_BASE_URL", "")).rstrip("/")
+    return str(os.getenv("PUBLIC_API_BASE_URL", "")).rstrip("/")
 
 
 def _normalise_public_export_url(url: str | None) -> str | None:
@@ -996,18 +996,14 @@ def dataset_create(request):
 def dataset_detail(request, slug: str):
     opendatasoft_result = None
     opendatasoft_error = None
-    if request.method == "POST" and request.POST.get("action") == "publish_to_opendatasoft":
+    if request.method == "POST" and request.POST.get("action") == "prepare_opendatasoft":
         try:
-            opendatasoft_result = api_client.publish_to_opendatasoft(slug)
+            opendatasoft_result = api_client.prepare_opendatasoft(slug)
             status = opendatasoft_result.get("status")
-            if status == "dry_run":
-                messages.info(request, "Mode dry-run : aucune publication réelle n'a été envoyée à OpenDataSoft.")
-            elif status == "published":
-                messages.success(request, "Dataset publié sur OpenDataSoft.")
-            elif status == "updated":
-                messages.success(request, "Dataset OpenDataSoft mis à jour.")
+            if status == "manual_package":
+                messages.success(request, "Paquet OpenDataSoft préparé pour publication manuelle.")
             else:
-                messages.error(request, opendatasoft_result.get("error") or "Publication OpenDataSoft non aboutie.")
+                messages.error(request, opendatasoft_result.get("error") or "Préparation OpenDataSoft non aboutie.")
         except (BackendUnavailable, ApiError) as exc:
             opendatasoft_error = str(exc)
             messages.error(request, opendatasoft_error)

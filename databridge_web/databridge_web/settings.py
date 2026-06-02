@@ -179,10 +179,6 @@ TEMPLATES = [
 ]
 
 
-WSGI_APPLICATION = "databridge_web.wsgi.application"
-ASGI_APPLICATION = "databridge_web.asgi.application"
-
-
 # ---------------------------------------------------------------------
 # DATABASE — DJANGO SUR TURSO UNIQUEMENT
 # ---------------------------------------------------------------------
@@ -274,17 +270,7 @@ LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 
-# ---------------------------------------------------------------------
-# FASTAPI BACKEND — RENDER HTTPS UNIQUEMENT
-# ---------------------------------------------------------------------
-
-FASTAPI_BASE_URL = _require_https_url("FASTAPI_BASE_URL")
 INTERNAL_API_TOKEN = _require_env("INTERNAL_API_TOKEN")
-
-try:
-    REQUEST_TIMEOUT_SECONDS = float(os.getenv("DATABRIDGE_WEB_TIMEOUT", "18"))
-except ValueError as exc:
-    raise RuntimeError("DATABRIDGE_WEB_TIMEOUT doit être un nombre.") from exc
 
 
 # ---------------------------------------------------------------------
