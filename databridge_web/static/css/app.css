@@ -3074,69 +3074,14 @@ small {
   margin-top: 0;
 }
 
-.parameter-note,
-.measure-note {
+.parameter-note {
   color: var(--muted);
   font-size: 13px;
-}
-
-.measure-note {
-  margin: -4px 0 14px;
-  padding: 10px 12px;
-  border: 1px solid rgba(148, 163, 184, .2);
-  border-radius: var(--radius);
-  background: rgba(248, 250, 252, .82);
 }
 
 .parameter-field.has-error,
 .field-error {
   color: var(--danger);
-}
-
-.mesures-summary {
-  margin-bottom: 18px;
-}
-
-.measure-card-panel {
-  position: relative;
-}
-
-.measure-card-panel.is-loading {
-  opacity: .68;
-  pointer-events: none;
-}
-
-.measure-card-panel.is-loading::after {
-  content: "Mise à jour...";
-  position: absolute;
-  right: 18px;
-  top: 18px;
-  padding: 6px 10px;
-  color: var(--primary-dark);
-  background: rgba(239, 246, 255, .95);
-  border: 1px solid rgba(37, 99, 235, .16);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.measure-details summary {
-  cursor: pointer;
-  color: var(--primary);
-  font-weight: 800;
-}
-
-.measure-details ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  color: var(--text-secondary);
-}
-
-.measure-details span {
-  display: block;
-  margin-top: 5px;
-  color: var(--text-secondary);
-  font-size: 12px;
 }
 
 .dataset-detail-preview-zone.is-loading {

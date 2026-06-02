@@ -578,41 +578,6 @@
 })();
 
 (function () {
-  document.addEventListener("click", async (event) => {
-    const link = event.target.closest?.(".measure-card-panel .app-pagination a");
-    if (!link) return;
-    const card = link.closest("[data-measure-card]");
-    if (!card) return;
-
-    event.preventDefault();
-    card.classList.add("is-loading");
-    const requestUrl = new URL(window.location.href);
-    const targetUrl = new URL(link.href, window.location.href);
-    targetUrl.searchParams.forEach((value, key) => {
-      requestUrl.searchParams.set(key, value);
-    });
-
-    try {
-      const response = await fetch(requestUrl.toString(), {
-        headers: { "X-Requested-With": "XMLHttpRequest" },
-      });
-      const html = await response.text();
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const key = card.getAttribute("data-measure-card");
-      const nextCard = doc.querySelector(`[data-measure-card="${key}"]`);
-      if (!response.ok || !nextCard) {
-        window.location.href = link.href;
-        return;
-      }
-      card.replaceWith(nextCard);
-      window.history.replaceState(null, "", requestUrl.toString());
-    } catch (error) {
-      window.location.href = requestUrl.toString();
-    }
-  });
-})();
-
-(function () {
   document.querySelectorAll("[data-chart-image]").forEach((image) => {
     image.addEventListener("error", () => {
       image.closest(".chronology-chart-frame")?.classList.add("is-chart-error");

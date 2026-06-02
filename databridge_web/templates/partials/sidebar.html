@@ -1,7 +1,6 @@
 {% load static %}
 <aside class="app-sidebar">
 
-  {# ── Brand ──────────────────────────────────────────── #}
   <a class="brand-block" href="{% url 'dashboard:dashboard' %}">
     <span class="brand-mark brand-mark-logo">
       <img src="{% static 'img/richat_partners_logo.jpg' %}" alt="Richat Partners">
@@ -12,7 +11,6 @@
     </span>
   </a>
 
-  {# ── Navigation ─────────────────────────────────────── #}
   <nav class="sidebar-nav" aria-label="Navigation principale">
 
     <span class="nav-section-label">Tableau de bord</span>
@@ -46,7 +44,7 @@
     </a>
 
     <a class="nav-item {% if active_page == 'assistant' %}active{% endif %}"
-      href="{% url 'dashboard:ai_assistant' %}">
+       href="{% url 'dashboard:ai_assistant' %}">
       Assistant IA
     </a>
 
@@ -60,22 +58,6 @@
       Configuration IA
     </a>
 
-    <a class="nav-item {% if active_page == 'mesures' %}active{% endif %}"
-       href="{% url 'dashboard:mesures' %}">
-      <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-        <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5H2v-5zM7 7a1 1 0 011-1h2a1 1 0 011 1v9H7V7zM12 4a1 1 0 011-1h2a1 1 0 011 1v12h-4V4z"/>
-      </svg>
-      Mesures
-    </a>
-
-    <a class="nav-item {% if active_page == 'ai_evaluation' %}active{% endif %}"
-       href="{% url 'dashboard:ai_evaluation' %}">
-      <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-        <path d="M9 2a1 1 0 012 0v1.07A7.002 7.002 0 0117.93 9H19a1 1 0 110 2h-1.07A7.002 7.002 0 0111 17.93V19a1 1 0 11-2 0v-1.07A7.002 7.002 0 012.07 11H1a1 1 0 110-2h1.07A7.002 7.002 0 019 3.07V2zM5 10a5 5 0 1010 0 5 5 0 00-10 0zm4-2a1 1 0 112 0v2.38l1.45 1.45a1 1 0 01-1.42 1.42l-1.74-1.75A1 1 0 019 10.8V8z"/>
-      </svg>
-      Évaluation IA
-    </a>
-
     <a class="nav-item {% if active_page == 'users' %}active{% endif %}"
        href="{% url 'dashboard:superuser_management' %}">
       <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -87,11 +69,10 @@
 
   </nav>
 
-  {# ── Footer Panel ───────────────────────────────────── #}
   <div class="sidebar-panel">
     <span class="eyebrow">Mode opérationnel</span>
     <strong>API d'export active</strong>
-    <p>Interface Django connectée au serveur FastAPI.</p>
+    <p>Interface Django connectée au serveur ASGI unifié.</p>
     <div class="sidebar-status {% if backend_error %}disconnected{% endif %}">
       <span class="sidebar-status-dot"></span>
       <span>{% if backend_error %}Déconnecté{% else %}Connecté{% endif %}</span>
