@@ -35,11 +35,15 @@ def generate_json(
     if spec.code == "local":
         raise AIProviderConfigError("Le mode local ne déclenche aucun appel IA externe.")
 
-    endpoint = _chat_completions_endpoint(_required_env("AI_BASE_URL", "AI_BASE_URL est obligatoire pour openai_compatible."))
-    api_key = _required_env("AI_API_KEY", "AI_API_KEY est obligatoire pour openai_compatible.")
+    base_url = spec.chat_completions_base_url()
+    if not base_url:
+        raise AIProviderConfigError(f"URL API obligatoire pour {spec.label}.")
+    endpoint = _chat_completions_endpoint(base_url)
+    key_env = spec.key_envs[0] if spec.key_envs else "AI_API_KEY"
+    api_key = _required_env(key_env, f"{key_env} est obligatoire pour {spec.label}.")
     model_name = (model or "").strip()
     if not model_name:
-        raise AIProviderConfigError("AI_MODEL est obligatoire pour openai_compatible.")
+        raise AIProviderConfigError(f"AI_MODEL est obligatoire pour {spec.label}.")
 
     payload = _chat_payload(model_name, system_prompt, user_prompt, schema, temperature)
     headers = {

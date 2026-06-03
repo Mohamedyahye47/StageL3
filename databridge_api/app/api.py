@@ -195,7 +195,7 @@ def api_update_ai_runtime_config(
         validate_layer_config("recommendation", provider, payload.AI_MODEL)
     except AIProviderConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if provider == "openai_compatible" and not payload.AI_MODEL.strip():
+    if provider != "local" and not payload.AI_MODEL.strip():
         raise HTTPException(status_code=400, detail="Les modèles IA sont obligatoires.")
     ai_assistant_service.AI_PROVIDER = provider
     ai_assistant_service.AI_MODEL = payload.AI_MODEL.strip() or "regles_metier_locales"
