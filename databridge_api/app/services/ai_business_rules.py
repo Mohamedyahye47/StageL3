@@ -49,6 +49,39 @@ BUSINESS_RULES: dict[str, dict[str, Any]] = {
             "Chomage",
         ),
     },
+    "poverty": {
+        "label": "Pauvrete et conditions de vie",
+        "triggers": (
+            "pauvrete",
+            "pauvreté",
+            "poverty",
+            "seuil de pauvrete",
+            "seuil de pauvreté",
+            "conditions de vie",
+            "inegalite",
+            "inégalité",
+            "revenu",
+            "bidonvilles",
+            "slum",
+        ),
+        "direct_codes": (
+            "SI.POV.NAHC",
+            "SI.POV.DDAY",
+            "SI.POV.GINI",
+            "SI.DST.FRST.20",
+            "SI.DST.05TH.20",
+            "EN.POP.SLUM.UR.ZS",
+        ),
+        "required_if_available": (),
+        "forbidden_if_not_requested": (),
+        "preferred_topics": (
+            "Pauvreté",
+            "Pauvreté et inégalités",
+            "Poverty",
+            "Protection sociale",
+            "Main-d'oeuvre et protection sociale",
+        ),
+    },
     "trade_external_sector": {
         "label": "Commerce exterieur et secteur externe",
         "triggers": (
@@ -354,6 +387,8 @@ def _score_indicator(
     if intent == "inflation" and code.startswith("FP.CPI"):
         score += 80
     if intent == "population" and code.startswith("SP.POP"):
+        score += 80
+    if intent == "poverty" and code.startswith(("SI.POV", "SI.DST", "EN.POP.SLUM")):
         score += 80
     if intent == "economic_growth" and code.startswith("NY.GDP"):
         score += 80

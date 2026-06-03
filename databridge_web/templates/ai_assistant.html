@@ -91,18 +91,23 @@
 <section class="panel">
   <div class="panel-heading">
     <div>
-      <span class="eyebrow">Proposition IA</span>
+      <span class="eyebrow">Proposition assistée</span>
       <h3>{{ recommendation.title }}</h3>
     </div>
     <div class="chip-row">
-      <span class="status-badge {{ recommendation.etat_technique|status_badge_class }}">Technique : {{ recommendation.etat_technique|status_label }}</span>
-      <span class="status-badge {{ recommendation.etat_metier|status_badge_class }}">Métier : {{ recommendation.etat_metier|status_label }}</span>
-      <span class="soft-pill">Confiance déclarée : {{ recommendation.confidence }}</span>
-      <span class="soft-pill">Appels IA : {{ recommendation.ai_calls|default:"0" }}</span>
+      <span class="soft-pill">Catalogue local vérifié</span>
+      <span class="soft-pill">Aperçu non lancé</span>
       {% if recommendation.source_execution == "local_rules" %}
-        <span class="soft-pill">Mode local</span>
+        <span class="soft-pill">Règles locales</span>
+      {% else %}
+        <span class="soft-pill">IA externe utilisée</span>
       {% endif %}
     </div>
+  </div>
+
+  <div class="alert alert-info app-alert">
+    Cette proposition est une aide à la création. Elle confirme seulement que les indicateurs existent dans le catalogue local.
+    Elle ne prouve pas encore la disponibilité réelle des données : lancez l’aperçu avant de générer les liens.
   </div>
 
   {% if recommendation.correction_detectee %}
@@ -126,7 +131,7 @@
       <div class="export-link-card-head">
         <div>
           <span class="eyebrow">Description proposée</span>
-          <strong>Texte validable</strong>
+          <strong>À vérifier avant aperçu</strong>
         </div>
       </div>
       <textarea class="form-control copyable-field" id="ai-description-copy" rows="4" readonly>{{ recommendation.description }}</textarea>
@@ -141,7 +146,7 @@
 
     {% if recommendation.topic_name %}
       <div class="info-row">
-        <span>Thème</span>
+        <span>Thème suggéré</span>
         <strong>{{ recommendation.topic_name }}</strong>
       </div>
     {% endif %}
@@ -164,54 +169,51 @@
     </div>
 
     <div class="info-row">
-      <span>Indicateurs validés</span>
+      <span>Indicateurs dans le catalogue</span>
       <strong>{{ recommendation.indicators|length }}</strong>
     </div>
 
     <div class="info-row">
-      <span>Intention métier</span>
-      <strong>{{ recommendation.topic_intent|default:"-" }}</strong>
-    </div>
-
-    <div class="info-row">
-      <span>Mode utilisé</span>
+      <span>Méthode</span>
       <strong>{% if recommendation.source_execution == "local_rules" %}Règles locales{% else %}Appel IA unique{% endif %}</strong>
     </div>
-
-    <div class="info-row">
-      <span>Fournisseur</span>
-      <strong>{{ recommendation.fournisseur_ia|default:"Non disponible" }}</strong>
-    </div>
-
-    <div class="info-row">
-      <span>Modèle</span>
-      <strong>{{ recommendation.modele_ia|default:"Non disponible"|technical_label }}</strong>
-    </div>
-
-    <div class="info-row">
-      <span>Tokens consommés</span>
-      <strong>{{ recommendation.tokens_utilises|default:"Non disponible via l'API locale" }}</strong>
-    </div>
-
-    <div class="info-row">
-      <span>Quota restant</span>
-      <strong>Non disponible via l'API locale</strong>
-    </div>
-
-    {% if recommendation.quota_requetes_atteint %}
-      <div class="info-row">
-        <span>Quota requêtes</span>
-        <strong>Quota IA atteint</strong>
-      </div>
-    {% endif %}
-
-    {% if recommendation.retry_after_seconds %}
-      <div class="info-row">
-        <span>Nouvelle tentative</span>
-        <strong>Dans environ {{ recommendation.retry_after_seconds }} seconde(s)</strong>
-      </div>
-    {% endif %}
   </div>
+
+  <details class="technical-details mt-3">
+    <summary>Traçabilité technique</summary>
+    <div class="info-grid mt-3">
+      <div class="info-row">
+        <span>Fournisseur</span>
+        <strong>{{ recommendation.fournisseur_ia|default:"Non disponible" }}</strong>
+      </div>
+      <div class="info-row">
+        <span>Modèle</span>
+        <strong>{{ recommendation.modele_ia|default:"Non disponible"|technical_label }}</strong>
+      </div>
+      <div class="info-row">
+        <span>Appels IA externes</span>
+        <strong>{{ recommendation.ai_calls|default:"0" }}</strong>
+      </div>
+      <div class="info-row">
+        <span>Intention serveur</span>
+        <strong>{{ recommendation.topic_intent|default:"-" }}</strong>
+      </div>
+      <div class="info-row">
+        <span>Statut interne</span>
+        <strong>{{ recommendation.etat_metier|status_label }}</strong>
+      </div>
+      <div class="info-row">
+        <span>Confiance déclarée par l’IA</span>
+        <strong>{{ recommendation.confidence|default:"Non utilisée comme preuve" }}</strong>
+      </div>
+      {% if recommendation.retry_after_seconds %}
+        <div class="info-row">
+          <span>Nouvelle tentative</span>
+          <strong>Dans environ {{ recommendation.retry_after_seconds }} seconde(s)</strong>
+        </div>
+      {% endif %}
+    </div>
+  </details>
 
   <div class="mt-3">
     <form method="post">
