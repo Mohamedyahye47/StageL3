@@ -114,13 +114,6 @@
             </label>
           {% endfor %}
         </div>
-        {% if group.disabled_providers %}
-          <div class="provider-disabled-list">
-            {% for provider in group.disabled_providers %}
-              <span class="soft-pill">{{ provider.label }} : {{ provider.disabled_reason }}</span>
-            {% endfor %}
-          </div>
-        {% endif %}
       </section>
     {% endfor %}
 

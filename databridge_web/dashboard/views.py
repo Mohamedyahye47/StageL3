@@ -490,7 +490,7 @@ def _assistant_error_message(exc: Exception) -> str:
             )
 
         if exc.status_code == 429:
-            return str(exc) if "limite de taux" in message_text else "Quota IA atteint. Réessayez plus tard ou utilisez le mode local."
+            return str(exc) if "limite de taux" in message_text else "Quota IA atteint. Réessayez plus tard ou passez AI_PROVIDER=local dans Configuration IA."
 
         if exc.status_code in {502, 503, 504} or any(
             term in message_text
@@ -512,16 +512,19 @@ def ai_assistant(request):
     if request.method == "POST":
         action = request.POST.get("action", "generate")
 
-        if action in {"generate", "generate_local"}:
+        if action == "generate":
             user_request = request.POST.get("user_request", "").strip()
 
             if not user_request:
                 error = "Veuillez décrire votre besoin d'analyse."
             else:
                 try:
+                    session_ai_config = request.session.get("model_parameter_values")
+                    if session_ai_config:
+                        api_client.update_ai_runtime_config(_model_parameter_payload(session_ai_config))
                     recommendation = get_ai_dataset_recommendation(
                         user_request,
-                        local_only=action == "generate_local",
+                        local_only=False,
                     )
 
                     light_recommendation = _build_light_ai_recommendation(recommendation)
@@ -536,7 +539,7 @@ def ai_assistant(request):
                         object_type="assistant_ia",
                         object_id=recommendation.get("run_id", ""),
                         extra={
-                            "local_only": action == "generate_local",
+                            "local_only": False,
                             "source_execution": recommendation.get("source_execution"),
                             "status": "success",
                         },
@@ -549,9 +552,9 @@ def ai_assistant(request):
                     if exc.status_code == 429 and exc.payload.get("error_type") == "ai_quota_exceeded":
                         retry_after = exc.payload.get("retry_after_seconds")
                         if retry_after:
-                            error = f"Quota IA atteint. Réessayez dans environ {retry_after} secondes ou utilisez la proposition locale."
+                            error = f"Quota IA atteint. Réessayez dans environ {retry_after} secondes ou passez AI_PROVIDER=local dans Configuration IA."
                         else:
-                            error = "Quota IA atteint. Réessayez plus tard ou utilisez la proposition locale."
+                            error = "Quota IA atteint. Réessayez plus tard ou passez AI_PROVIDER=local dans Configuration IA."
                     else:
                         error = _assistant_error_message(exc)
 
@@ -561,7 +564,7 @@ def ai_assistant(request):
                         object_type="assistant_ia",
                         extra={
                             "status_code": exc.status_code,
-                            "local_only": action == "generate_local",
+                            "local_only": False,
                         },
                     )
 
@@ -573,7 +576,7 @@ def ai_assistant(request):
                         object_type="assistant_ia",
                         extra={
                             "reason": "backend_unavailable",
-                            "local_only": action == "generate_local",
+                            "local_only": False,
                         },
                     )
 
@@ -585,7 +588,7 @@ def ai_assistant(request):
                         object_type="assistant_ia",
                         extra={
                             "reason": exc.__class__.__name__,
-                            "local_only": action == "generate_local",
+                            "local_only": False,
                         },
                     )
 
@@ -1823,7 +1826,6 @@ def _build_model_parameter_groups(
     groups: list[dict[str, Any]] = []
     runtime_config = runtime_config or {}
     provider_options = runtime_config.get("providers_by_layer") or {}
-    disabled_options = runtime_config.get("disabled_providers_by_layer") or {}
     model_options = runtime_config.get("models_by_layer") or {}
     resolved_values: dict[str, Any] = {}
     for group in MODEL_PARAMETER_GROUPS:
@@ -1876,9 +1878,6 @@ def _build_model_parameter_groups(
             )
             resolved_values[name] = value
         groups.append({**group, "fields": fields})
-        layer = next((field.get("layer") for field in group["fields"] if field.get("layer")), None)
-        if layer:
-            groups[-1]["disabled_providers"] = disabled_options.get(layer, [])
     return groups
 
 
