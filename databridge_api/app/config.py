@@ -110,28 +110,15 @@ ODS_PRODUCER = _env_text("ODS_PRODUCER", "Richat DataBridge")
 ODS_ORGANIZATION = _env_text("ODS_ORGANIZATION", "Richat Data Hub")
 DATABRIDGE_SEED_METADATA_ON_STARTUP = _env_bool("DATABRIDGE_SEED_METADATA_ON_STARTUP", "0")
 
-AI_PROVIDER = (os.getenv("AI_PROVIDER") or "gemini").strip().lower()
-AI_OUTPUT_TYPE = (os.getenv("AI_OUTPUT_TYPE") or "dictionary").strip().lower()
-AI_RESPONSE_MODE = (os.getenv("AI_RESPONSE_MODE") or "json_schema").strip().lower()
+AI_PROVIDER = (os.getenv("AI_PROVIDER") or "local").strip().lower()
+AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "60"))
 AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0"))
 AI_MAX_CANDIDATES = int(os.getenv("AI_MAX_CANDIDATES", "40"))
 AI_TARGET_INDICATORS = int(os.getenv("AI_TARGET_INDICATORS", "5"))
-AI_MODEL = (
-    os.getenv("AI_MODEL")
-    or os.getenv("AI_ASSISTANT_MODEL")
-    or os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-)
+AI_MODEL = os.getenv("AI_MODEL", "regles_metier_locales" if AI_PROVIDER == "local" else "").strip()
 AI_ENABLE_BUSINESS_RULES = os.getenv("AI_ENABLE_BUSINESS_RULES", "1").strip().lower() in {"1", "true", "yes", "on"}
 AI_LOG_DECISIONS = os.getenv("AI_LOG_DECISIONS", "1").strip().lower() in {"1", "true", "yes", "on"}
 AI_MIN_DIRECT_MATCHES = int(os.getenv("AI_MIN_DIRECT_MATCHES", "1"))
-SUPPORTED_AI_PROVIDERS = [
-    item.strip().lower()
-    for item in os.getenv(
-        "SUPPORTED_AI_PROVIDERS",
-        "gemini,openai,azure_openai,anthropic,mistral,deepseek,cohere,groq,together,xai,perplexity",
-    ).split(",")
-    if item.strip() and item.strip().lower() != "ollama"
-]
 
 SOURCE_LIMITS = {
     "WB": {
@@ -139,9 +126,6 @@ SOURCE_LIMITS = {
         "label": os.getenv("WB_SOURCE_LABEL", "Banque mondiale"),
     },
 }
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
 API_TITLE = "Richat DataBridge API"
 

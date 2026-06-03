@@ -13,6 +13,7 @@ for path in (PROJECT_ROOT, API_ROOT):
         sys.path.insert(0, str(path))
 
 from app import config as app_config
+from app.ai.clients import AIProviderExecutionError
 from app.ai.registry import AIProviderConfigError, models_by_layer, providers_by_layer, validate_layer_config
 from app.database import get_db
 from app.schemas import (
@@ -225,6 +226,10 @@ def get_ai_dataset_recommendation(user_request: str, *, local_only: bool = False
             )
         except AIQuotaExceeded as exc:
             raise ApiError(exc.to_payload()["message"], status_code=429, payload=exc.to_payload()) from exc
+        except AIProviderConfigError as exc:
+            raise ApiError(str(exc), status_code=400) from exc
+        except AIProviderExecutionError as exc:
+            raise ApiError(str(exc), status_code=exc.status_code) from exc
         except ValueError as exc:
             raise ApiError(str(exc), status_code=400) from exc
         except RuntimeError as exc:
@@ -247,6 +252,7 @@ def _current_ai_runtime_config() -> AiRuntimeConfigOut:
         AI_PROVIDER=ai_assistant_service.AI_PROVIDER,
         AI_MODEL=ai_assistant_service.AI_MODEL,
         AI_TEMPERATURE=ai_assistant_service.AI_TEMPERATURE,
+        AI_TIMEOUT_SECONDS=int(app_config.AI_TIMEOUT_SECONDS),
         AI_ENABLE_BUSINESS_RULES=ai_assistant_service.AI_ENABLE_BUSINESS_RULES,
         AI_MAX_CANDIDATES=ai_assistant_service.MAX_CANDIDATES,
         AI_TARGET_INDICATORS=ai_assistant_service.TARGET_INDICATORS,
@@ -271,8 +277,9 @@ def update_ai_runtime_config(payload: dict[str, Any]) -> dict[str, Any]:
     except AIProviderConfigError as exc:
         raise ApiError(str(exc), status_code=400) from exc
     ai_assistant_service.AI_PROVIDER = provider
-    ai_assistant_service.AI_MODEL = config.AI_MODEL.strip()
+    ai_assistant_service.AI_MODEL = config.AI_MODEL.strip() or "regles_metier_locales"
     ai_assistant_service.AI_TEMPERATURE = config.AI_TEMPERATURE
+    app_config.AI_TIMEOUT_SECONDS = config.AI_TIMEOUT_SECONDS
     ai_assistant_service.AI_ENABLE_BUSINESS_RULES = config.AI_ENABLE_BUSINESS_RULES
     ai_assistant_service.MAX_CANDIDATES = config.AI_MAX_CANDIDATES
     ai_assistant_service.TARGET_INDICATORS = config.AI_TARGET_INDICATORS

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import config as app_config
 from app.config import PUBLIC_API_BASE_URL, PUBLISH_MODE, REMOTE_PROVIDER, SOURCE_LIMITS, export_api_is_local
+from app.ai.clients import AIProviderExecutionError
 from app.ai.registry import AIProviderConfigError, models_by_layer, providers_by_layer, validate_layer_config
 from app.database import get_db
 from app.schemas import (
@@ -111,6 +112,24 @@ def api_recommend_dataset(
             run_id=run_id,
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AIProviderConfigError as exc:
+        enregistrer_echec_decision_ia(
+            demande_utilisateur=payload.user_request,
+            erreur=str(exc),
+            source_execution="assistant_ui",
+            triggered_by="user_click",
+            run_id=run_id,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AIProviderExecutionError as exc:
+        enregistrer_echec_decision_ia(
+            demande_utilisateur=payload.user_request,
+            erreur=str(exc),
+            source_execution="assistant_ui",
+            triggered_by="user_click",
+            run_id=run_id,
+        )
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except RuntimeError as exc:
         enregistrer_echec_decision_ia(
             demande_utilisateur=payload.user_request,
@@ -148,6 +167,7 @@ def _current_ai_runtime_config() -> AiRuntimeConfigOut:
         AI_PROVIDER=ai_assistant_service.AI_PROVIDER,
         AI_MODEL=ai_assistant_service.AI_MODEL,
         AI_TEMPERATURE=ai_assistant_service.AI_TEMPERATURE,
+        AI_TIMEOUT_SECONDS=int(app_config.AI_TIMEOUT_SECONDS),
         AI_ENABLE_BUSINESS_RULES=ai_assistant_service.AI_ENABLE_BUSINESS_RULES,
         AI_MAX_CANDIDATES=ai_assistant_service.MAX_CANDIDATES,
         AI_TARGET_INDICATORS=ai_assistant_service.TARGET_INDICATORS,
@@ -175,11 +195,12 @@ def api_update_ai_runtime_config(
         validate_layer_config("recommendation", provider, payload.AI_MODEL)
     except AIProviderConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not payload.AI_MODEL.strip():
+    if provider == "openai_compatible" and not payload.AI_MODEL.strip():
         raise HTTPException(status_code=400, detail="Les modèles IA sont obligatoires.")
     ai_assistant_service.AI_PROVIDER = provider
-    ai_assistant_service.AI_MODEL = payload.AI_MODEL.strip()
+    ai_assistant_service.AI_MODEL = payload.AI_MODEL.strip() or "regles_metier_locales"
     ai_assistant_service.AI_TEMPERATURE = payload.AI_TEMPERATURE
+    app_config.AI_TIMEOUT_SECONDS = payload.AI_TIMEOUT_SECONDS
     ai_assistant_service.AI_ENABLE_BUSINESS_RULES = payload.AI_ENABLE_BUSINESS_RULES
     ai_assistant_service.MAX_CANDIDATES = payload.AI_MAX_CANDIDATES
     ai_assistant_service.TARGET_INDICATORS = payload.AI_TARGET_INDICATORS

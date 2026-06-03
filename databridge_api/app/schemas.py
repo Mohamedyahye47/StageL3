@@ -9,9 +9,10 @@ class AiRecommendationIn(BaseModel):
 
 
 class AiRuntimeConfigIn(BaseModel):
-    AI_PROVIDER: str = "gemini"
-    AI_MODEL: str
+    AI_PROVIDER: str = "local"
+    AI_MODEL: str = "regles_metier_locales"
     AI_TEMPERATURE: float = Field(default=0, ge=0, le=1)
+    AI_TIMEOUT_SECONDS: int = Field(default=60, ge=1, le=300)
     AI_ENABLE_BUSINESS_RULES: bool = True
     AI_MAX_CANDIDATES: int = Field(default=40, ge=10, le=100)
     AI_TARGET_INDICATORS: int = Field(default=5, ge=1, le=20)

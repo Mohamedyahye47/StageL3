@@ -3,161 +3,22 @@ from __future__ import annotations
 import json
 import os
 import re
-from abc import ABC, abstractmethod
 from typing import Any, TypeVar
 
 import httpx
 from pydantic import BaseModel, ValidationError
 
-try:
-    from google import genai
-except ImportError:  # pragma: no cover - API remains importable without Gemini routes.
-    genai = None
-
-from app.ai.registry import (
-    OPENAI_COMPATIBLE_ENDPOINTS,
-    AIProviderConfigError,
-    LayerCode,
-    ProviderSpec,
-    validate_layer_config,
-)
+from app.ai.registry import AIProviderConfigError, LayerCode, validate_layer_config
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
-AI_HTTP_TIMEOUT = float(os.getenv("AI_HTTP_TIMEOUT", "60"))
-
 
 class AIProviderExecutionError(RuntimeError):
-    """Raised when a configured provider fails to return valid structured JSON."""
+    """Raised when the external AI provider fails without exposing secrets."""
 
-
-class AIProviderClient(ABC):
-    """Common interface for all executable AI providers."""
-
-    def __init__(self, spec: ProviderSpec) -> None:
-        self.spec = spec
-
-    @abstractmethod
-    def generate_json(
-        self,
-        *,
-        model: str,
-        system_prompt: str,
-        user_prompt: str,
-        schema: type[SchemaT],
-        temperature: float,
-    ) -> SchemaT:
-        """Return a Pydantic-validated JSON payload."""
-
-
-class GeminiClient(AIProviderClient):
-    def generate_json(
-        self,
-        *,
-        model: str,
-        system_prompt: str,
-        user_prompt: str,
-        schema: type[SchemaT],
-        temperature: float,
-    ) -> SchemaT:
-        if genai is None:
-            raise AIProviderConfigError("google-genai n'est pas installé.")
-        api_key = _required_env(self.spec.key_envs[0])
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model,
-            contents=f"{system_prompt}\n\n{user_prompt}",
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": schema,
-                "temperature": temperature,
-            },
-        )
-        if hasattr(response, "parsed") and response.parsed:
-            return schema.model_validate(response.parsed)
-        return _validate_json_text(response.text or "", schema)
-
-
-class OpenAICompatibleClient(AIProviderClient):
-    def generate_json(
-        self,
-        *,
-        model: str,
-        system_prompt: str,
-        user_prompt: str,
-        schema: type[SchemaT],
-        temperature: float,
-    ) -> SchemaT:
-        endpoint = OPENAI_COMPATIBLE_ENDPOINTS.get(self.spec.code)
-        if not endpoint:
-            raise AIProviderConfigError("Adaptateur non implémenté.")
-        api_key = _required_env(self.spec.key_envs[0])
-        payload = _chat_payload(model, system_prompt, user_prompt, schema, temperature)
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        return _post_chat_completion(endpoint, headers, payload, schema, provider_label=self.spec.label)
-
-
-class AzureOpenAIClient(AIProviderClient):
-    def generate_json(
-        self,
-        *,
-        model: str,
-        system_prompt: str,
-        user_prompt: str,
-        schema: type[SchemaT],
-        temperature: float,
-    ) -> SchemaT:
-        api_key = _required_env("AZURE_OPENAI_API_KEY")
-        endpoint = _required_env("AZURE_OPENAI_ENDPOINT").rstrip("/")
-        deployment = model
-        api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-        url = f"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={api_version}"
-        payload = _chat_payload(model, system_prompt, user_prompt, schema, temperature)
-        payload.pop("model", None)
-        headers = {"api-key": api_key, "Content-Type": "application/json"}
-        return _post_chat_completion(url, headers, payload, schema, provider_label=self.spec.label)
-
-
-class AnthropicClient(AIProviderClient):
-    def generate_json(
-        self,
-        *,
-        model: str,
-        system_prompt: str,
-        user_prompt: str,
-        schema: type[SchemaT],
-        temperature: float,
-    ) -> SchemaT:
-        api_key = _required_env(self.spec.key_envs[0])
-        schema_instruction = _json_schema_instruction(schema)
-        payload = {
-            "model": model,
-            "max_tokens": 4096,
-            "temperature": temperature,
-            "system": f"{system_prompt}\n\n{schema_instruction}",
-            "messages": [{"role": "user", "content": user_prompt}],
-        }
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": os.getenv("ANTHROPIC_VERSION", "2023-06-01"),
-            "Content-Type": "application/json",
-        }
-        try:
-            with httpx.Client(timeout=AI_HTTP_TIMEOUT) as client:
-                response = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
-                response.raise_for_status()
-                data = response.json()
-        except httpx.HTTPStatusError as exc:
-            raise AIProviderExecutionError(f"Erreur fournisseur {self.spec.label}: HTTP {exc.response.status_code}") from exc
-        except httpx.HTTPError as exc:
-            raise AIProviderExecutionError(f"Erreur de connexion au fournisseur {self.spec.label}.") from exc
-
-        text_parts = [
-            block.get("text", "")
-            for block in data.get("content", [])
-            if isinstance(block, dict) and block.get("type") == "text"
-        ]
-        return _validate_json_text("\n".join(text_parts), schema)
+    def __init__(self, message: str, *, status_code: int = 503) -> None:
+        self.status_code = status_code
+        super().__init__(message)
 
 
 def generate_json(
@@ -171,48 +32,25 @@ def generate_json(
     temperature: float,
 ) -> SchemaT:
     spec = validate_layer_config(layer, provider, model)
-    client = _client_for(spec)
-    return client.generate_json(
-        model=model,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        schema=schema,
-        temperature=temperature,
-    )
+    if spec.code == "local":
+        raise AIProviderConfigError("Le mode local ne déclenche aucun appel IA externe.")
+
+    endpoint = _chat_completions_endpoint(_required_env("AI_BASE_URL", "AI_BASE_URL est obligatoire pour openai_compatible."))
+    api_key = _required_env("AI_API_KEY", "AI_API_KEY est obligatoire pour openai_compatible.")
+    model_name = (model or "").strip()
+    if not model_name:
+        raise AIProviderConfigError("AI_MODEL est obligatoire pour openai_compatible.")
+
+    payload = _chat_payload(model_name, system_prompt, user_prompt, schema, temperature)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    return _post_chat_completion(endpoint, headers, payload, schema)
 
 
-def generate_text(
-    *,
-    provider: str,
-    model: str,
-    prompt: str,
-    temperature: float,
-) -> str:
-    spec = validate_layer_config("recommendation", provider, model)
-    if spec.adapter != "gemini":
-        raise AIProviderConfigError("Le test rapide en texte libre est disponible uniquement pour Gemini.")
-    if genai is None:
-        raise AIProviderConfigError("google-genai n'est pas installé.")
-    api_key = _required_env("GEMINI_API_KEY")
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config={"temperature": temperature},
-    )
-    return response.text or ""
-
-
-def _client_for(spec: ProviderSpec) -> AIProviderClient:
-    if spec.adapter == "gemini":
-        return GeminiClient(spec)
-    if spec.adapter == "azure_openai":
-        return AzureOpenAIClient(spec)
-    if spec.adapter == "openai_compatible":
-        return OpenAICompatibleClient(spec)
-    if spec.adapter == "anthropic":
-        return AnthropicClient(spec)
-    raise AIProviderConfigError("Adaptateur non implémenté.")
+def _chat_completions_endpoint(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}/chat/completions"
 
 
 def _post_chat_completion(
@@ -220,18 +58,26 @@ def _post_chat_completion(
     headers: dict[str, str],
     payload: dict[str, Any],
     schema: type[SchemaT],
-    *,
-    provider_label: str,
 ) -> SchemaT:
+    timeout = _timeout_seconds()
     try:
-        with httpx.Client(timeout=AI_HTTP_TIMEOUT) as client:
+        with httpx.Client(timeout=timeout) as client:
             response = client.post(endpoint, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
+    except httpx.TimeoutException as exc:
+        raise AIProviderExecutionError("Timeout du fournisseur IA externe.", status_code=504) from exc
     except httpx.HTTPStatusError as exc:
-        raise AIProviderExecutionError(f"Erreur fournisseur {provider_label}: HTTP {exc.response.status_code}") from exc
+        status = exc.response.status_code
+        if status == 401:
+            raise AIProviderExecutionError("Clé API IA invalide ou non autorisée.", status_code=401) from exc
+        if status == 429:
+            raise AIProviderExecutionError("Quota ou limite de taux IA dépassé.", status_code=429) from exc
+        raise AIProviderExecutionError(f"Erreur du fournisseur IA externe: HTTP {status}.") from exc
     except httpx.HTTPError as exc:
-        raise AIProviderExecutionError(f"Erreur de connexion au fournisseur {provider_label}.") from exc
+        raise AIProviderExecutionError("Erreur de connexion au fournisseur IA externe.") from exc
+    except ValueError as exc:
+        raise AIProviderExecutionError("Réponse fournisseur IA invalide.") from exc
 
     try:
         content = data["choices"][0]["message"]["content"]
@@ -249,12 +95,11 @@ def _chat_payload(
 ) -> dict[str, Any]:
     return {
         "model": model,
-        "temperature": temperature,
-        "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": f"{system_prompt}\n\n{_json_schema_instruction(schema)}"},
             {"role": "user", "content": user_prompt},
         ],
+        "temperature": temperature,
     }
 
 
@@ -287,7 +132,7 @@ def _extract_json(text: str) -> str:
     return match.group(0)
 
 
-def _required_env(name: str) -> str:
+def _required_env(name: str, message: str) -> str:
     value = os.getenv(name)
     lowered = value.strip().lower() if value else ""
     if (
@@ -296,5 +141,14 @@ def _required_env(name: str) -> str:
         or lowered.startswith("your-")
         or lowered in {"changeme", "change-me", "todo", "none", "null"}
     ):
-        raise AIProviderConfigError("La clé API du fournisseur sélectionné n'est pas configurée.")
+        raise AIProviderConfigError(message)
     return value.strip()
+
+
+def _timeout_seconds() -> float:
+    try:
+        from app import config as app_config
+
+        return max(1.0, float(getattr(app_config, "AI_TIMEOUT_SECONDS", os.getenv("AI_TIMEOUT_SECONDS", "60"))))
+    except ValueError:
+        return 60.0

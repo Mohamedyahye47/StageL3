@@ -10,7 +10,6 @@ pydantic>=2.0.0
 python-dotenv>=1.0.0
 libsql
 django-libsql-backend==0.1.1
-google-genai>=1.0.0
 deep-translator>=1.11.4
 pycountry>=24.6.1
 Babel>=2.15.0

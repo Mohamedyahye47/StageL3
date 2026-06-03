@@ -29,7 +29,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--local-only",
         action="store_true",
-        help="Utilise uniquement les regles locales, sans appel Gemini.",
+        help="Utilise uniquement les règles locales, sans appel IA externe.",
     )
     return parser.parse_args()
 

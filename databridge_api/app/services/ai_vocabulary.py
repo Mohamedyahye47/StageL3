@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-# This file is NOT here to teach Gemini synonyms.
+# This file is NOT here to teach an external model synonyms.
 # It is here to help the backend search the LOCAL metadata catalogue.
 #
 # Why?

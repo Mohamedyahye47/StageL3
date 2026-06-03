@@ -14,7 +14,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.ai.clients import generate_json, generate_text
+from app.ai.clients import AIProviderExecutionError, generate_json
+from app.ai.registry import AIProviderConfigError
 from app.config import (
     AI_ENABLE_BUSINESS_RULES,
     AI_LOG_DECISIONS,
@@ -149,15 +150,6 @@ class SelectedCandidateIndicator(BaseModel):
         return self.indicator_id or self.id
 
 
-class CandidateSelection(BaseModel):
-    title: str = Field(description="Final dataset title in French")
-    description: str = Field(description="Final dataset description in French")
-    selected_indicators: list[SelectedCandidateIndicator] = Field(description="Selected indicators from candidate list only")
-    not_selected: list[SelectedCandidateIndicator] = Field(default_factory=list)
-    uncertainty: Literal["low", "medium", "high"] = "medium"
-    confidence: Literal["low", "medium", "high"] = "medium"
-
-
 class SingleCallDatasetRecommendation(BaseModel):
     source_code: str = Field(default="WB", description="Recommended source code, usually WB")
     country_id: int | None = Field(default=None, description="Local country ID if known from context")
@@ -243,28 +235,29 @@ class AIQuotaExceeded(RuntimeError):
         }
 
 
-def get_gemini_client(provider: str | None = None):
-    raise RuntimeError("Utilisez app.ai.clients.generate_json au lieu d'un client IA direct.")
+class QuickAITestResponse(BaseModel):
+    message: str
 
 
 def quick_ai_test() -> str:
-    return generate_text(
+    if AI_PROVIDER == "local":
+        return "Mode local actif : aucun appel IA externe."
+    result = generate_json(
+        layer="recommendation",
         provider=AI_PROVIDER,
         model=AI_MODEL,
-        prompt="Réponds en une phrase: le service IA de Richat DataBridge fonctionne.",
+        system_prompt="Tu testes la configuration IA de Richat DataBridge.",
+        user_prompt='Retourne {"message": "Le service IA fonctionne."}',
+        schema=QuickAITestResponse,
         temperature=AI_TEMPERATURE,
     )
-
-
-def normalize_user_request(user_request: str) -> NormalizedRequest:
-    """Compatibility wrapper: deterministic local parsing, no external IA call."""
-    if not user_request.strip():
-        raise ValueError("user_request is required")
-    return build_initial_local_analysis(user_request, DEFAULT_COUNTRY_NAME)
+    return result.message
 
 
 def analyze_user_request(user_request: str) -> RequestAnalysis:
-    return normalize_user_request(user_request)
+    if not user_request.strip():
+        raise ValueError("user_request is required")
+    return build_initial_local_analysis(user_request, DEFAULT_COUNTRY_NAME)
 
 
 def normalize_recommended_dates(start_year: int | None, end_year: int | None) -> tuple[str, str]:
@@ -841,30 +834,6 @@ def build_candidate_payload(db: Session, candidates: list[Indicator]) -> list[di
     return payload
 
 
-def choose_indicators_from_candidates(
-    *,
-    user_request: str,
-    analysis: RequestAnalysis,
-    candidates_payload: list[dict[str, Any]],
-    max_indicators: int,
-) -> CandidateSelection:
-    """Compatibility wrapper: select local candidates without any IA call."""
-    selected = [
-        SelectedCandidateIndicator(
-            indicator_id=int(item.get("indicator_id") or item.get("id")),
-            reason="Indicateur retenu par les regles locales serveur.",
-        )
-        for item in candidates_payload[:max_indicators]
-        if item.get("indicator_id") or item.get("id")
-    ]
-    return CandidateSelection(
-        title=analysis.title,
-        description=analysis.description,
-        selected_indicators=selected,
-        confidence=analysis.confidence,
-    )
-
-
 def recommend_dataset_from_local_candidates(
     *,
     user_request: str,
@@ -1053,7 +1022,7 @@ def recommend_dataset_validated(
     local_only: bool = False,
 ) -> ValidatedDatasetRecommendation:
     run_id = run_id or f"ia-{uuid.uuid4().hex}"
-    if local_only:
+    if local_only or AI_PROVIDER == "local":
         local = recommend_dataset_local(
             db,
             user_request,
@@ -1061,7 +1030,7 @@ def recommend_dataset_validated(
             triggered_by=triggered_by,
             run_id=run_id,
             fallback_used=False,
-            fallback_reason="manual_local",
+            fallback_reason="manual_local" if local_only else "provider_local",
         )
         if local is not None:
             return local
@@ -1076,6 +1045,8 @@ def recommend_dataset_validated(
             triggered_by=triggered_by,
             run_id=run_id,
         )
+    except (AIProviderConfigError, AIProviderExecutionError):
+        raise
     except Exception as exc:
         if _is_ai_quota_error(exc):
             local = recommend_dataset_local(

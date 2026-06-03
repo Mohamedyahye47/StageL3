@@ -51,6 +51,7 @@ MODEL_PARAMETER_GROUPS = [
             {"name": "AI_PROVIDER", "label": "Fournisseur IA", "type": "select", "layer": "recommendation"},
             {"name": "AI_MODEL", "label": "Modèle IA", "type": "select", "layer": "recommendation", "provider_field": "AI_PROVIDER"},
             {"name": "AI_TEMPERATURE", "label": "Température", "type": "range", "min": 0, "max": 1, "step": 0.1, "value_type": "float"},
+            {"name": "AI_TIMEOUT_SECONDS", "label": "Timeout fournisseur IA", "type": "range", "min": 1, "max": 300, "step": 1},
             {"name": "AI_TARGET_INDICATORS", "label": "Nombre cible d'indicateurs", "type": "range", "min": 1, "max": 20, "step": 1},
         ],
     },
@@ -449,6 +450,19 @@ def _assistant_error_message(exc: Exception) -> str:
                 "Le backend est probablement en réveil ou indisponible."
             )
 
+        if any(
+            marker in message_text
+            for marker in (
+                "provider ia non supporté",
+                "ai_base_url est obligatoire",
+                "ai_api_key est obligatoire",
+                "ai_model est obligatoire",
+                "clé api ia invalide",
+                "timeout du fournisseur ia externe",
+            )
+        ):
+            return str(exc)
+
         if exc.status_code == 400:
             if any(term in message_text for term in ("0 candidat", "aucun candidat", "no candidate", "local")):
                 if "mots-clés" in message_text or "mots-cles" in message_text or "codes world bank" in message_text:
@@ -476,7 +490,7 @@ def _assistant_error_message(exc: Exception) -> str:
             )
 
         if exc.status_code == 429:
-            return "Quota IA atteint. Réessayez plus tard ou utilisez le mode local."
+            return str(exc) if "limite de taux" in message_text else "Quota IA atteint. Réessayez plus tard ou utilisez le mode local."
 
         if exc.status_code in {502, 503, 504} or any(
             term in message_text
@@ -1870,7 +1884,8 @@ def _build_model_parameter_groups(
 
 def _model_option_label(option: str) -> str:
     labels = {
-        "gemini": "Gemini",
+        "local": "Mode local",
+        "openai_compatible": "OpenAI-compatible",
         "audit_only": "Audit uniquement",
         "always": "Toujours",
         "off": "Désactivé",
@@ -1941,9 +1956,10 @@ def _read_model_parameter_post(request) -> tuple[dict[str, Any], dict[str, str]]
 
 def _current_env_value(name: str) -> str:
     fallback_values = {
-        "AI_PROVIDER": "gemini",
-        "AI_MODEL": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+        "AI_PROVIDER": "local",
+        "AI_MODEL": "regles_metier_locales",
         "AI_TEMPERATURE": "0",
+        "AI_TIMEOUT_SECONDS": "60",
         "AI_ENABLE_BUSINESS_RULES": "1",
         "AI_MAX_CANDIDATES": "40",
         "AI_TARGET_INDICATORS": "5",
