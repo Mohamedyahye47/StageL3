@@ -148,8 +148,13 @@
     </div>
 
     <div class="info-row">
-      <span>Méthode</span>
-      <strong>{% if recommendation.source_execution == "local_rules" %}Configuration locale{% else %}Configuration IA active{% endif %}</strong>
+      <span>Fournisseur IA</span>
+      <strong>{{ recommendation.fournisseur_ia|default:"Non disponible" }}</strong>
+    </div>
+
+    <div class="info-row">
+      <span>Modèle IA</span>
+      <strong>{{ recommendation.modele_ia|default:"Non disponible"|technical_label }}</strong>
     </div>
   </div>
 
