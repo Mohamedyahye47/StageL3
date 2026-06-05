@@ -462,6 +462,9 @@ def _normalise_export_links(links: dict[str, Any] | None) -> dict[str, Any] | No
         if key in cleaned:
             cleaned[key] = _normalise_public_export_url(cleaned.get(key))
 
+    if cleaned.get("csv_url"):
+        cleaned["csv_view_url"] = _url_with_query(cleaned["csv_url"], view="1")
+
     return cleaned
 
 
@@ -794,6 +797,7 @@ def dataset_create(request):
     preview_rows: list[list[Any]] = []
     preview_error = None
     export_links = None
+    export_warning = None
     links_already_generated = False
     preview_ready = False
 
@@ -899,7 +903,7 @@ def dataset_create(request):
                 cached_signature = request.session.get("last_export_payload")
                 cached_links = request.session.get("last_export_links")
                 if action == "generate_links" and cached_signature == payload_signature and cached_links:
-                    export_links = cached_links
+                    export_links = _normalise_export_links(cached_links)
                     links_already_generated = True
                     messages.info(request, "Les liens ont deja ete generes pour cette selection.")
                 else:
@@ -915,7 +919,21 @@ def dataset_create(request):
                         )
                         messages.error(request, str(exc))
                     else:
+                        result = _normalise_export_links(result)
                         export_links = result
+                        requested_count = len(payload.get("indicator_ids", []))
+                        returned_count = int(result.get("indicator_count") or 0)
+                        missing_codes = result.get("missing_indicator_codes") or []
+                        if returned_count < requested_count:
+                            export_warning = (
+                                f"{requested_count - returned_count} indicateur(s) sélectionné(s) "
+                                "n'ont pas été conservés par la validation serveur."
+                            )
+                        elif missing_codes:
+                            export_warning = (
+                                "Tous les indicateurs sélectionnés sont conservés, mais certains "
+                                "n'ont pas retourné de données pour le pays ou la période demandée."
+                            )
                         record_audit_event(
                             request,
                             action="export_links_generated",
@@ -997,6 +1015,7 @@ def dataset_create(request):
             "countries": countries,
             "selected_indicators": selected_indicators,
             "selected_indicator_ids": posted_indicator_ids,
+            "selected_indicator_ids_json": json.dumps(posted_indicator_ids, ensure_ascii=False),
             "selected_country": selected_country,
             "indicator_search": indicator_search,
             "country_search": country_search,
@@ -1014,6 +1033,7 @@ def dataset_create(request):
             "preview_error": preview_error,
             "preview_ready": preview_ready,
             "export_links": export_links,
+            "export_warning": export_warning,
             "links_already_generated": links_already_generated,
             "export_is_local": _is_local_export_url(export_links.get("csv_url")) if export_links else False,
         },
@@ -1050,7 +1070,7 @@ def dataset_detail(request, slug: str):
     manifest = selected_version.get("manifest", {}) if selected_version else {}
     csv_url = detail.get("csv_url") or _manifest_value(manifest, "csv_url", "url_donnees", "data_url")
     json_url = detail.get("json_url") or _manifest_value(manifest, "json_url")
-    csv_view_url = csv_url
+    csv_view_url = _url_with_query(csv_url, view="1") if csv_url else None
     data_url = csv_url
     opendatasoft_metadata = (
         detail.get("opendatasoft_metadata")
@@ -1351,6 +1371,113 @@ def ajax_dataset_preview(request):
             "preview_count": data_preview.get("preview_count", 0),
             "non_null_value_count": data_preview.get("non_null_value_count", 0),
             "missing_indicator_count": len(data_preview.get("missing_indicator_codes", [])),
+        }
+    )
+
+
+@require_POST
+def ajax_dataset_generate_links(request):
+    posted_indicator_ids = [str(value) for value in request.POST.getlist("indicator_ids")]
+    indicator_choices = [(value, value) for value in posted_indicator_ids]
+    source_limits, _ = _load_source_limits()
+    selected_source_limit = _source_limit_for(source_limits, request.POST.get("source_code") or DEFAULT_SOURCE_CODE)
+    form = DatasetCreateForm(
+        request.POST,
+        indicator_choices=indicator_choices,
+        max_indicators=selected_source_limit["max_indicators_per_dataset"],
+        source_label=selected_source_limit["label"],
+    )
+
+    if not form.is_valid():
+        return JsonResponse(
+            {
+                "ok": False,
+                "message": _form_error_message(form),
+                "errors": form.errors.get_json_data(),
+            },
+            status=400,
+        )
+
+    payload = _build_export_payload(form.cleaned_data)
+    payload_signature = _payload_signature(payload)
+    if request.session.get("last_preview_payload") != payload_signature:
+        return JsonResponse(
+            {
+                "ok": False,
+                "message": "Générez d'abord un aperçu des données pour cette sélection avant de créer les liens.",
+            },
+            status=400,
+        )
+
+    cached_signature = request.session.get("last_export_payload")
+    cached_links = request.session.get("last_export_links")
+    if cached_signature == payload_signature and cached_links:
+        export_links = _normalise_export_links(cached_links)
+        links_already_generated = True
+    else:
+        try:
+            export_links = api_client.generate_export_links(dict(payload))
+        except (BackendUnavailable, ApiError) as exc:
+            record_audit_event(
+                request,
+                action="export_links_generation_failed",
+                object_type="export_dataset",
+                extra={"reason": exc.__class__.__name__, "ajax": True},
+            )
+            return JsonResponse({"ok": False, "message": str(exc)}, status=503)
+        export_links = _normalise_export_links(export_links)
+        links_already_generated = False
+        request.session["last_export_payload"] = payload_signature
+        request.session["last_export_links"] = export_links
+        request.session.modified = True
+        record_audit_event(
+            request,
+            action="export_links_generated",
+            object_type="export_dataset",
+            object_id=export_links.get("slug", ""),
+            extra={
+                "ajax": True,
+                "row_count": export_links.get("row_count"),
+                "indicator_count": export_links.get("indicator_count"),
+            },
+        )
+
+    requested_count = len(payload.get("indicator_ids", []))
+    returned_count = int(export_links.get("indicator_count") or 0)
+    missing_codes = export_links.get("missing_indicator_codes") or []
+    export_warning = None
+    if returned_count < requested_count:
+        export_warning = (
+            f"{requested_count - returned_count} indicateur(s) sélectionné(s) "
+            "n'ont pas été conservés par la validation serveur."
+        )
+    elif missing_codes:
+        export_warning = (
+            "Tous les indicateurs sélectionnés sont conservés, mais certains "
+            "n'ont pas retourné de données pour le pays ou la période demandée."
+        )
+
+    html = render_to_string(
+        "partials/dataset_export_links.html",
+        {
+            "export_links": export_links,
+            "export_warning": export_warning,
+            "export_is_local": _is_local_export_url(export_links.get("csv_url")),
+        },
+        request=request,
+    )
+    return JsonResponse(
+        {
+            "ok": True,
+            "html": html,
+            "message": (
+                "Liens déjà générés pour cette sélection."
+                if links_already_generated
+                else f"Liens d'export générés pour : {export_links.get('slug', '')}"
+            ),
+            "slug": export_links.get("slug"),
+            "indicator_count": export_links.get("indicator_count"),
+            "missing_indicator_codes": missing_codes,
         }
     )
 

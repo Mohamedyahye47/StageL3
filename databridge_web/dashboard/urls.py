@@ -29,6 +29,7 @@ urlpatterns = [
     path("ajax/indicators/", views.ajax_indicators, name="ajax_indicators"),
     path("ajax/countries/", views.ajax_countries, name="ajax_countries"),
     path("ajax/datasets/preview/", views.ajax_dataset_preview, name="ajax_dataset_preview"),
+    path("ajax/datasets/generate-links/", views.ajax_dataset_generate_links, name="ajax_dataset_generate_links"),
     path("ajax/datasets/<slug:slug>/preview/", views.ajax_dataset_detail_preview, name="ajax_dataset_detail_preview"),
     path("assistant/", views.ai_assistant, name="ai_assistant"),
     path("ai-assistant/", views.ai_assistant, name="ai_assistant_alias"),

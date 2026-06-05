@@ -46,8 +46,10 @@
     data-indicators-url="{% url 'dashboard:ajax_indicators' %}"
     data-countries-url="{% url 'dashboard:ajax_countries' %}"
     data-preview-url="{% url 'dashboard:ajax_dataset_preview' %}"
+    data-generate-url="{% url 'dashboard:ajax_dataset_generate_links' %}"
     data-preview-ready="{% if preview_ready %}true{% else %}false{% endif %}"
     data-source-limits='{{ source_limits_json|escape }}'
+    data-selected-indicator-ids='{{ selected_indicator_ids_json|escape }}'
   >
     {% csrf_token %}
     <input type="hidden" id="indicator_page" name="indicator_page" value="{{ indicator_pagination.page }}">
@@ -532,6 +534,7 @@
 
         </div>
 
+<div id="export-links-async-zone" class="export-links-async-zone" aria-live="polite">
 {% if export_links %}
   <section class="panel builder-section export-links-panel">
     <div class="section-title">
@@ -553,6 +556,17 @@
       Opendatasoft n'utilise aucune clé API pour lire cette ressource.
       Le portail doit pouvoir accéder à une URL publique HTTPS. Le token dans le lien protège uniquement l'API d'export DataBridge.
     </div>
+
+    {% if export_links.missing_indicator_codes %}
+      <div class="alert alert-warning app-alert mt-3">
+        <strong>Indicateurs sans donnÃ©es pour ce pays ou cette pÃ©riode.</strong>
+        <span>Ils existent dans le catalogue, mais World Bank n'a pas retournÃ© de lignes pour : {{ export_links.missing_indicator_codes|join:", " }}.</span>
+      </div>
+    {% endif %}
+
+    {% if export_warning %}
+      <div class="alert alert-warning app-alert mt-3">{{ export_warning }}</div>
+    {% endif %}
 
     <div class="export-link-grid mt-3">
       <article class="export-link-card">
@@ -695,12 +709,13 @@
       <a class="btn btn-soft" href="{% url 'dashboard:dataset_detail' export_links.slug %}">
         Voir la fiche du jeu de données et publier
       </a>
-      <a class="btn btn-outline-primary" href="{{ export_links.csv_url }}" target="_blank" rel="noopener">
+      <a class="btn btn-outline-primary" href="{{ export_links.csv_view_url|default:export_links.csv_url }}" target="_blank" rel="noopener">
         Ouvrir le CSV
       </a>
     </div>
   </section>
 {% endif %}
+</div>
 
 <section class="publish-panel">
   <div>

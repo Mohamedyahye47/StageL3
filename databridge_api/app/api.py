@@ -356,9 +356,11 @@ def api_export_dataset_csv(
         status="success",
     )
 
+    media_type = "text/plain; charset=utf-8" if (view or preview) else "text/csv; charset=utf-8"
+
     return Response(
         content=csv_text,
-        media_type="text/csv; charset=utf-8",
+        media_type=media_type,
         headers={
             "Cache-Control": "no-store",
             "Access-Control-Allow-Origin": "*",

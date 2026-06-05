@@ -223,6 +223,8 @@ class ExportLinksOut(BaseModel):
     row_count: int
     non_null_value_count: int
     indicator_count: int
+    indicator_codes: list[str] = Field(default_factory=list)
+    missing_indicator_codes: list[str] = Field(default_factory=list)
     status: str
     opendatasoft_metadata: dict[str, Any] | None = None
     opendatasoft_status: str | None = None

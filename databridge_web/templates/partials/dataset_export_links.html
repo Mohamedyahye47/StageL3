@@ -1,0 +1,139 @@
+{% if export_links %}
+  <section class="panel builder-section export-links-ready">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">Export prêt</span>
+        <h3>Liens CSV / JSON générés</h3>
+        <p>Copiez le lien CSV dans OpenDataSoft. Le lien d'affichage CSV sert seulement à vérifier le contenu dans le navigateur.</p>
+      </div>
+    </div>
+
+    <div class="metric-grid">
+      <div class="metric-card">
+        <span>Lignes exportées</span>
+        <strong>{{ export_links.row_count }}</strong>
+      </div>
+      <div class="metric-card">
+        <span>Valeurs non nulles</span>
+        <strong>{{ export_links.non_null_value_count }}</strong>
+      </div>
+      <div class="metric-card">
+        <span>Indicateurs retenus</span>
+        <strong>{{ export_links.indicator_count }}</strong>
+      </div>
+      <div class="metric-card">
+        <span>Indicateurs sans données</span>
+        <strong>{{ export_links.missing_indicator_codes|length }}</strong>
+      </div>
+    </div>
+
+    {% if export_links.missing_indicator_codes %}
+      <div class="alert alert-warning app-alert mt-3">
+        <strong>Certains indicateurs existent dans le catalogue, mais aucune donnée n'a été retournée pour le pays ou la période demandée.</strong>
+        <span>Codes concernés : {{ export_links.missing_indicator_codes|join:", " }}.</span>
+      </div>
+    {% endif %}
+
+    {% if export_warning %}
+      <div class="alert alert-warning app-alert mt-3">{{ export_warning }}</div>
+    {% endif %}
+
+    <div class="export-link-grid mt-3">
+      <article class="export-link-card">
+        <div class="export-link-card-head">
+          <div>
+            <span class="eyebrow">CSV</span>
+            <strong>Lien CSV pour OpenDataSoft</strong>
+          </div>
+          <button
+            class="copy-icon-btn"
+            type="button"
+            data-copy-target="#csv-export-url"
+            aria-label="Copier"
+          >
+            <span class="copy-icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </span>
+            <span class="copy-tooltip">Copier</span>
+          </button>
+        </div>
+        <input class="form-control copyable-field" id="csv-export-url" value="{{ export_links.csv_url }}" readonly>
+      </article>
+
+      <article class="export-link-card">
+        <div class="export-link-card-head">
+          <div>
+            <span class="eyebrow">JSON</span>
+            <strong>Lien JSON</strong>
+          </div>
+          <button
+            class="copy-icon-btn"
+            type="button"
+            data-copy-target="#json-export-url"
+            aria-label="Copier"
+          >
+            <span class="copy-icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+                <rect x="5" y="5" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </span>
+            <span class="copy-tooltip">Copier</span>
+          </button>
+        </div>
+        <input class="form-control copyable-field" id="json-export-url" value="{{ export_links.json_url }}" readonly>
+      </article>
+    </div>
+
+    {% if export_links.opendatasoft_metadata %}
+      <div class="panel mt-3">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">OpenDataSoft</span>
+            <h3>Fiche publique préparée</h3>
+            <p>Ces métadonnées seront utilisées depuis la fiche du jeu de données pour publier vers Richat Data Hub.</p>
+          </div>
+        </div>
+        <div class="info-grid">
+          <div class="info-row">
+            <span>Titre public</span>
+            <strong>{{ export_links.opendatasoft_metadata.title }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Thème</span>
+            <strong>{{ export_links.opendatasoft_metadata.theme }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Producteur</span>
+            <strong>{{ export_links.opendatasoft_metadata.producer }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Couverture</span>
+            <strong>{{ export_links.opendatasoft_metadata.geographic_coverage }}</strong>
+          </div>
+          <div class="info-row">
+            <span>Période</span>
+            <strong>{{ export_links.opendatasoft_metadata.period.start_date }} à {{ export_links.opendatasoft_metadata.period.end_date }}</strong>
+          </div>
+        </div>
+        <div class="chip-row mt-3">
+          {% for keyword in export_links.opendatasoft_metadata.keywords %}
+            <span class="soft-pill">{{ keyword }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="d-flex gap-2 flex-wrap mt-3">
+      <a class="btn btn-soft" href="{% url 'dashboard:dataset_detail' export_links.slug %}">
+        Voir la fiche du jeu de données et publier
+      </a>
+      <a class="btn btn-outline-primary" href="{{ export_links.csv_view_url|default:export_links.csv_url }}" target="_blank" rel="noopener">
+        Voir le CSV
+      </a>
+    </div>
+  </section>
+{% endif %}

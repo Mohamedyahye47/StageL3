@@ -56,6 +56,7 @@
   const reviewCountry   = form.querySelector("#review-country");
   const reviewIndicators = form.querySelector("#review-indicators");
   const previewZone     = form.querySelector("#preview-async-zone");
+  const exportLinksZone = form.querySelector("#export-links-async-zone");
   const previewActionSlot = form.querySelector("#preview-action-slot");
   const stepperItems    = Array.from(form.querySelectorAll(".stepper-item"));
   let previewReady      = form.dataset.previewReady === "true";
@@ -66,15 +67,27 @@
     sourceLimits = {};
   }
 
-  const selectedIndicators = new Set(
-    Array.from(form.querySelectorAll('input[name="indicator_ids"]:checked')).map((el) => el.value)
-  );
+  function initialSelectedIndicatorIds() {
+    const ids = new Set();
+    try {
+      JSON.parse(form.dataset.selectedIndicatorIds || "[]").forEach((value) => {
+        if (value !== null && value !== undefined && String(value).trim()) ids.add(String(value));
+      });
+    } catch (error) {
+      // Ignore malformed server state; checked inputs remain the source of truth.
+    }
+    Array.from(form.querySelectorAll('input[name="indicator_ids"]:checked')).forEach((el) => ids.add(el.value));
+    return ids;
+  }
+
+  const selectedIndicators = initialSelectedIndicatorIds();
 
   const urls = {
     topics:     form.dataset.topicsUrl,
     indicators: form.dataset.indicatorsUrl,
     countries:  form.dataset.countriesUrl,
     preview:    form.dataset.previewUrl,
+    generate:   form.dataset.generateUrl,
   };
 
   /* ── Utilities ──────────────────────────────────────── */
@@ -128,6 +141,9 @@
       if (state === "loading" && step === 4) item.classList.add("active", "current", "loading");
       if (state === "ready" && step === 4) item.classList.add("active", "complete");
       if (state === "ready" && step === 5) item.classList.add("active", "current");
+      if (state === "exporting" && step === 4) item.classList.add("active", "complete");
+      if (state === "exporting" && step === 5) item.classList.add("active", "current", "loading");
+      if (state === "exported" && step <= 5) item.classList.add("active", "complete");
     });
   }
 
@@ -294,6 +310,66 @@
         publishButton.disabled = true;
         publishButton.setAttribute("aria-disabled", "true");
       }
+      if (button) {
+        button.disabled = false;
+        button.innerHTML = previousHtml;
+      }
+      return false;
+    }
+  }
+
+  async function genererLiensExport(button) {
+    if (!urls.generate || !exportLinksZone) return false;
+
+    syncPreservedIndicators();
+    const previousHtml = button ? button.innerHTML : "";
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = `${spinnerSvg()} Génération des liens...`;
+    }
+    setStepperState("exporting");
+    exportLinksZone.innerHTML = `
+      <section class="panel builder-section preview-loading-card">
+        <div class="preview-loader-orb">${spinnerSvg()}</div>
+        <div>
+          <span class="eyebrow">Export en cours</span>
+          <h3>Génération des liens CSV / JSON</h3>
+          <p>DataBridge prépare les URLs publiques sans recharger la page.</p>
+        </div>
+      </section>`;
+
+    const formData = new FormData(form);
+    formData.set("action", "generate_links");
+
+    try {
+      const response = await fetch(urls.generate, {
+        method: "POST",
+        body: formData,
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Génération des liens impossible pour cette sélection.");
+      }
+
+      exportLinksZone.innerHTML = data.html || "";
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Liens déjà générés";
+      }
+      setStepperState("exported");
+      exportLinksZone.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return true;
+    } catch (error) {
+      exportLinksZone.innerHTML = `
+        <div class="alert alert-warning app-alert preview-error-card">
+          <strong>Génération des liens non disponible.</strong>
+          <span>${escapeHtml(error.message || "Une erreur est survenue.")}</span>
+        </div>`;
+      setStepperState("ready");
       if (button) {
         button.disabled = false;
         button.innerHTML = previousHtml;
@@ -520,6 +596,12 @@
     if (action === "preview") {
       event.preventDefault();
       previewJeuDonnees(submitter);
+      return;
+    }
+
+    if (action === "generate_links") {
+      event.preventDefault();
+      genererLiensExport(submitter);
       return;
     }
 

@@ -258,6 +258,8 @@ def generate_export_links(db: Session, payload: PublishDatasetIn) -> dict[str, A
         "row_count": data_build.row_count,
         "non_null_value_count": data_build.non_null_value_count,
         "indicator_count": len(context.indicators),
+        "indicator_codes": [indicator.code for indicator in context.indicators],
+        "missing_indicator_codes": data_build.missing_indicator_codes,
         "status": dataset.status,
         "opendatasoft_metadata": manifest.get("opendatasoft_metadata"),
         "opendatasoft_status": manifest.get("opendatasoft_status"),
