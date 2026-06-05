@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date
+import hmac
 import json
 import os
 import re
@@ -130,8 +131,23 @@ def first_admin_setup(request):
     if User.objects.filter(is_superuser=True).exists():
         return redirect("dashboard:dashboard" if request.user.is_authenticated else "dashboard:login")
 
+    setup_token = getattr(settings, "SETUP_ADMIN_TOKEN", "").strip()
+    setup_token_configured = bool(setup_token)
+    setup_token_valid = _setup_admin_token_is_valid(request, setup_token)
     form = SuperuserCreationForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
+    setup_disabled = False
+    setup_token_error = ""
+
+    if not setup_token_configured:
+        setup_disabled = True
+        setup_token_error = (
+            "La creation du premier administrateur est desactivee : "
+            "SETUP_ADMIN_TOKEN doit etre configure temporairement sur Render."
+        )
+    elif request.method == "POST" and not setup_token_valid:
+        setup_token_error = "Jeton de premier lancement invalide."
+
+    if request.method == "POST" and not setup_disabled and setup_token_valid and form.is_valid():
         user = form.save()
         record_audit_event(
             request,
@@ -144,7 +160,24 @@ def first_admin_setup(request):
         messages.success(request, "Premier administrateur cree. Bienvenue dans Richat DataBridge.")
         return redirect("dashboard:dashboard")
 
-    return render(request, "first_admin.html", {"form": form})
+    return render(
+        request,
+        "first_admin.html",
+        {
+            "form": form,
+            "setup_disabled": setup_disabled,
+            "setup_token_error": setup_token_error,
+        },
+    )
+
+
+def _setup_admin_token_is_valid(request, expected_token: str) -> bool:
+    if not expected_token:
+        return False
+    submitted_token = (request.POST.get("setup_token") or "").strip()
+    if not submitted_token:
+        return False
+    return hmac.compare_digest(submitted_token, expected_token)
 
 
 def superuser_management(request):

@@ -1,12 +1,35 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import re
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from .models import AuditLog
 
 
 SENSITIVE_MARKERS = ("password", "token", "secret", "api_key", "apikey", "key")
+SENSITIVE_EXACT_KEYS = {
+    "DJANGO_SECRET_KEY",
+    "TURSO_AUTH_TOKEN",
+    "DJANGO_TURSO_AUTH_TOKEN",
+    "INTERNAL_API_TOKEN",
+    "DATABRIDGE_EXPORT_TOKEN",
+    "GEMINI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "MISTRAL_API_KEY",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+    "TOGETHER_API_KEY",
+    "XAI_API_KEY",
+    "PERPLEXITY_API_KEY",
+    "OPENROUTER_API_KEY",
+    "FIREWORKS_API_KEY",
+    "CEREBRAS_API_KEY",
+    "NVIDIA_API_KEY",
+    "SAMBANOVA_API_KEY",
+    "AI_API_KEY",
+}
 
 
 def record_audit_event(
@@ -55,15 +78,41 @@ def _sanitize(value: Any) -> Any:
         clean: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            if any(marker in key_text.lower() for marker in SENSITIVE_MARKERS):
+            if key_text.upper() in SENSITIVE_EXACT_KEYS or any(marker in key_text.lower() for marker in SENSITIVE_MARKERS):
                 clean[key_text] = "[masque]"
             else:
                 clean[key_text] = _sanitize(item)
         return clean
     if isinstance(value, str):
-        return value[:1000]
+        return _sanitize_text(value)[:1000]
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_sanitize(item) for item in list(value)[:50]]
     if isinstance(value, (int, float, bool)) or value is None:
         return value
     return str(value)[:1000]
+
+
+def _sanitize_text(value: str) -> str:
+    text = _mask_sensitive_query_params(value)
+    return re.sub(
+        r"(?i)\b(password|token|secret|api[_-]?key|apikey|key)\s*[:=]\s*[^,\s;&]+",
+        r"\1=[masque]",
+        text,
+    )
+
+
+def _mask_sensitive_query_params(value: str) -> str:
+    parsed = urlparse(value)
+    if not parsed.query:
+        return value
+    changed = False
+    query_items: list[tuple[str, str]] = []
+    for key, item in parse_qsl(parsed.query, keep_blank_values=True):
+        if key.lower() in {"token", "api_key", "apikey", "key", "secret", "password"}:
+            query_items.append((key, "[masque]"))
+            changed = True
+        else:
+            query_items.append((key, item))
+    if not changed:
+        return value
+    return urlunparse(parsed._replace(query=urlencode(query_items)))

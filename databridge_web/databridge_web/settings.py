@@ -271,6 +271,7 @@ LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 
 INTERNAL_API_TOKEN = _require_env("INTERNAL_API_TOKEN")
+SETUP_ADMIN_TOKEN = os.getenv("SETUP_ADMIN_TOKEN", "").strip()
 
 
 # ---------------------------------------------------------------------

@@ -14,22 +14,47 @@
         <span class="eyebrow">Premier lancement</span>
         <h1>Créer le premier superuser</h1>
         <p>Cette page est disponible uniquement tant qu’aucun superuser Django n’existe.</p>
+        <p class="text-muted">
+          Un jeton temporaire de premier lancement est requis pour éviter la création d’un compte par une personne non autorisée.
+        </p>
 
         <form method="post" novalidate>
           {% csrf_token %}
+          {% if setup_token_error %}
+            <div class="alert alert-danger app-alert">{{ setup_token_error }}</div>
+          {% endif %}
           {% if form.non_field_errors %}
             <div class="alert alert-danger app-alert">{{ form.non_field_errors.0 }}</div>
           {% endif %}
+
+          <div class="mb-3">
+            <label class="form-label" for="id_setup_token">Jeton de premier lancement</label>
+            <input
+              class="form-control"
+              id="id_setup_token"
+              name="setup_token"
+              type="password"
+              autocomplete="off"
+              {% if setup_disabled %}disabled{% endif %}
+            >
+          </div>
+
           {% for field in form %}
             <div class="mb-3">
               <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-              {{ field }}
+              {% if setup_disabled %}
+                <fieldset disabled>{{ field }}</fieldset>
+              {% else %}
+                {{ field }}
+              {% endif %}
               {% if field.errors %}
                 <div class="field-error">{{ field.errors.0 }}</div>
               {% endif %}
             </div>
           {% endfor %}
-          <button type="submit" class="btn btn-primary w-100">Créer le compte administrateur</button>
+          <button type="submit" class="btn btn-primary w-100" {% if setup_disabled %}disabled{% endif %}>
+            Créer le compte administrateur
+          </button>
         </form>
       </section>
     </main>
