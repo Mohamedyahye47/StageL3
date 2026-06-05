@@ -1050,7 +1050,7 @@ def dataset_detail(request, slug: str):
     manifest = selected_version.get("manifest", {}) if selected_version else {}
     csv_url = detail.get("csv_url") or _manifest_value(manifest, "csv_url", "url_donnees", "data_url")
     json_url = detail.get("json_url") or _manifest_value(manifest, "json_url")
-    csv_view_url = _url_with_query(csv_url, preview="1") if csv_url else None
+    csv_view_url = csv_url
     data_url = csv_url
     opendatasoft_metadata = (
         detail.get("opendatasoft_metadata")
@@ -1083,6 +1083,11 @@ def dataset_detail(request, slug: str):
             or opendatasoft_last_error
         )
         opendatasoft_last_steps = opendatasoft_result.get("opendatasoft_last_steps") or opendatasoft_last_steps
+    if isinstance(opendatasoft_metadata, dict) and csv_url:
+        opendatasoft_metadata = {
+            **opendatasoft_metadata,
+            "csv_url": csv_url,
+        }
 
     preview = None
     preview_columns: list[str] = []

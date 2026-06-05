@@ -22,7 +22,7 @@ def build_opendatasoft_metadata(dataset: Any, manifest: dict[str, Any]) -> dict[
     end_date = _first_text(manifest.get("end_date"), manifest.get("date_fin"), "")
     theme = _first_text(_first_list_item(manifest.get("topic_names")), ODS_DEFAULT_THEME)
     source = _first_text(_first_list_item(manifest.get("source_names")), _first_list_item(manifest.get("source_codes")), "Banque mondiale")
-    csv_url = _with_query_params(_first_text(manifest.get("csv_url"), manifest.get("url_donnees"), manifest.get("data_url")), download="1")
+    csv_url = _first_text(manifest.get("csv_url"), manifest.get("url_donnees"), manifest.get("data_url"))
     json_url = _first_text(manifest.get("json_url"), "")
     indicators = _as_text_list(manifest.get("indicator_names")) or _as_text_list(manifest.get("codes_indicateurs"))
     indicator_codes = _as_text_list(manifest.get("indicator_codes") or manifest.get("codes_indicateurs"))

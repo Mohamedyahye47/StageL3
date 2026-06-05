@@ -488,6 +488,12 @@ def get_dataset_detail(db: Session, slug: str) -> dict[str, Any] | None:
         versions[0],
     )
     manifest = latest_version.get("manifest") or {}
+    opendatasoft_metadata = manifest.get("opendatasoft_metadata")
+    if isinstance(opendatasoft_metadata, dict) and dataset.csv_export_url:
+        opendatasoft_metadata = {
+            **opendatasoft_metadata,
+            "csv_url": dataset.csv_export_url,
+        }
     return {
         "id": dataset.id,
         "slug": dataset.slug,
@@ -503,7 +509,7 @@ def get_dataset_detail(db: Session, slug: str) -> dict[str, Any] | None:
         "updated_at": dataset.updated_at,
         "latest_version_detail": latest_version,
         "versions": versions,
-        "opendatasoft_metadata": manifest.get("opendatasoft_metadata"),
+        "opendatasoft_metadata": opendatasoft_metadata,
         "opendatasoft_status": manifest.get("opendatasoft_status"),
         "opendatasoft_public_url": manifest.get("opendatasoft_public_url"),
         "opendatasoft_last_error": manifest.get("opendatasoft_last_error"),

@@ -331,7 +331,6 @@ def api_export_dataset_csv(
     slug: str,
     request: Request,
     token: str | None = Query(default=None),
-    download: bool = Query(default=False),
     preview: bool = Query(default=False),
     view: bool = Query(default=False),
     db: Session = Depends(get_db),
@@ -357,13 +356,10 @@ def api_export_dataset_csv(
         status="success",
     )
 
-    disposition_type = "attachment" if download else "inline"
-
     return Response(
         content=csv_text,
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f'{disposition_type}; filename="{slug}.csv"',
             "Cache-Control": "no-store",
             "Access-Control-Allow-Origin": "*",
         },
