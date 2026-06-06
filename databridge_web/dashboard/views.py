@@ -469,6 +469,32 @@ def _normalise_export_links(links: dict[str, Any] | None) -> dict[str, Any] | No
 
 
 
+def _polish_french_text(value: str | None) -> str:
+    text = value or ""
+    replacements = {
+        "Ce jeu de donnees presente": "Ce jeu de données présente",
+        "Ce jeu de données presente": "Ce jeu de données présente",
+        "l'evolution": "l'évolution",
+        "demographiques associes": "démographiques associés",
+        "croissance economique": "croissance économique",
+        "prix a la consommation": "prix à la consommation",
+        "chomage": "chômage",
+        "commerce exterieur": "commerce extérieur",
+        "vulnerabilite externe": "vulnérabilité externe",
+        "investissement direct etranger": "investissement direct étranger",
+        "entrees et en sorties": "entrées et en sorties",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _polish_dataset_item(item: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(item)
+    cleaned["description"] = _polish_french_text(cleaned.get("description"))
+    return cleaned
+
+
 def _assistant_error_message(exc: Exception) -> str:
     if isinstance(exc, BackendUnavailable):
         return (
@@ -1027,6 +1053,7 @@ def dataset_create(request):
             "source_limits": source_limits,
             "source_limits_json": json.dumps(source_limits, ensure_ascii=False),
             "selected_source_limit": selected_source_limit,
+            "selected_source_label": _source_display_label(selected_source, selected_source_limit),
             "indicator_limit_exceeded": indicator_limit_exceeded,
             "backend_error": backend_error,
             "ai_recommendation": ai_recommendation,
@@ -1208,8 +1235,8 @@ def model_parameters(request):
                     )
                     request.session["model_parameter_values"] = candidate_values
                     request.session.modified = True
-                    messages.success(request, "Configuration IA appliquée au serveur FastAPI pour la session en cours.")
                     saved_values = candidate_values
+                    messages.success(request, "Configuration IA appliquée pour la session en cours.")
 
     return render(
         request,
@@ -1549,7 +1576,8 @@ def ajax_dataset_detail_preview(request, slug: str):
 
 def _load_datasets() -> tuple[list[dict[str, Any]], str | None]:
     try:
-        return api_client.get_export_datasets(), None
+        datasets = api_client.get_export_datasets()
+        return [_polish_dataset_item(item) for item in datasets], None
     except (BackendUnavailable, ApiError) as exc:
         return [], _safe_backend_error(exc)
 
@@ -1574,6 +1602,12 @@ def _deduplicate_catalog_datasets(datasets: list[dict[str, Any]]) -> list[dict[s
 
 def _count_label(count: int, singular: str, plural: str) -> str:
     return f"{count} {singular if count == 1 else plural}"
+
+
+def _source_display_label(source_code: str | None, source_limit: dict[str, Any] | None) -> str:
+    code = (source_code or DEFAULT_SOURCE_CODE).strip().upper()
+    label = (source_limit or {}).get("label") or DEFAULT_SOURCE_LIMITS.get(code, {}).get("label") or code
+    return f"{label} ({code})" if code else label
 
 
 def _load_builder_catalog(
@@ -1973,7 +2007,7 @@ def _top_indicators_from_details(datasets: list[dict[str, Any]]) -> list[dict[st
             for indicator in version.get("indicators", []):
                 counter[(indicator.get("code", ""), indicator.get("name", ""))] += 1
     return [
-        {"code": code, "name": name, "count": count}
+        {"code": code, "name": name or code, "count": count}
         for (code, name), count in counter.most_common(6)
     ]
 

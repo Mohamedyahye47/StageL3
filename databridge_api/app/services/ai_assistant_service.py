@@ -1888,30 +1888,30 @@ def _local_concepts_for_intent(intent: str, *, correction_detectee: str | None) 
 
 def _local_title(intent: str, country_name: str) -> str:
     labels = {
-        "economic_growth": f"PIB et croissance economique - {country_name}",
+        "economic_growth": f"PIB et croissance économique - {country_name}",
         "inflation": f"Inflation - {country_name}",
         "poverty": f"Pauvreté et conditions de vie - {country_name}",
         "population": f"Population - {country_name}",
-        "unemployment": f"Taux de chomage - {country_name}",
+        "unemployment": f"Taux de chômage - {country_name}",
         "trade_external_sector": f"Commerce extérieur - {country_name}",
         "foreign_direct_investment": f"Investissement direct étranger - {country_name}",
     }
-    return labels.get(intent, f"Jeu de donnees - {country_name}")
+    return labels.get(intent, f"Jeu de données - {country_name}")
 
 
 def _local_description(intent: str, country_name: str, start_year: int) -> str:
     descriptions = {
-        "economic_growth": "Ce jeu de donnees presente les indicateurs principaux du PIB et de la croissance economique.",
-        "inflation": "Ce jeu de donnees presente l'inflation mesuree par les prix a la consommation.",
-        "poverty": "Ce jeu de donnees presente les indicateurs de pauvreté, de revenu et de conditions de vie disponibles dans le catalogue local.",
-        "population": "Ce jeu de donnees presente l'evolution de la population totale et des indicateurs demographiques associes.",
-        "unemployment": "Ce jeu de donnees presente les indicateurs du chomage et de l'emploi disponibles dans le catalogue local.",
-        "trade_external_sector": "Ce jeu de donnees presente les indicateurs du commerce exterieur, des exportations, des importations et de la vulnerabilite externe disponibles dans le catalogue local.",
-        "foreign_direct_investment": "Ce jeu de donnees presente les indicateurs d'investissement direct etranger, en entrees et en sorties, disponibles dans le catalogue local.",
+        "economic_growth": "Ce jeu de données présente les indicateurs principaux du PIB et de la croissance économique.",
+        "inflation": "Ce jeu de données présente l'inflation mesurée par les prix à la consommation.",
+        "poverty": "Ce jeu de données présente les indicateurs de pauvreté, de revenu et de conditions de vie disponibles dans le catalogue local.",
+        "population": "Ce jeu de données présente l'évolution de la population totale et des indicateurs démographiques associés.",
+        "unemployment": "Ce jeu de données présente les indicateurs du chômage et de l'emploi disponibles dans le catalogue local.",
+        "trade_external_sector": "Ce jeu de données présente les indicateurs du commerce extérieur, des exportations, des importations et de la vulnérabilité externe disponibles dans le catalogue local.",
+        "foreign_direct_investment": "Ce jeu de données présente les indicateurs d'investissement direct étranger, en entrées et en sorties, disponibles dans le catalogue local.",
     }
     return descriptions.get(
         intent,
-        f"Ce jeu de donnees presente les indicateurs disponibles pour {country_name} depuis {start_year}.",
+        f"Ce jeu de données présente les indicateurs disponibles pour {country_name} depuis {start_year}.",
     )
 
 

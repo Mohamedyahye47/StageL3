@@ -12,7 +12,7 @@
     <div>
       <span class="eyebrow">Création</span>
       <h2>Préparer une ressource API claire et vérifiable.</h2>
-      <p>Suivez les étapes, contrôlez la sélection, puis générez les liens CSV/JSON pour Opendatasoft.</p>
+      <p>Suivez les étapes, contrôlez la sélection, puis générez les liens CSV/JSON pour OpenDataSoft.</p>
     </div>
   </section>
 
@@ -208,9 +208,11 @@
             <input
               class="form-control"
               id="start_date"
-              type="date"
+              type="text"
               name="start_date"
               value="{{ form_values.start_date }}"
+              inputmode="numeric"
+              placeholder="JJ/MM/AAAA ou AAAA-MM-JJ"
             >
           </div>
 
@@ -219,9 +221,11 @@
             <input
               class="form-control"
               id="end_date"
-              type="date"
+              type="text"
               name="end_date"
               value="{{ form_values.end_date }}"
+              inputmode="numeric"
+              placeholder="JJ/MM/AAAA ou AAAA-MM-JJ"
             >
             {% if form.end_date.errors %}
               <div class="field-error">{{ form.end_date.errors.0 }}</div>
@@ -409,7 +413,7 @@
 
           <div class="review-card">
             <span>Source</span>
-            <strong id="review-source">{{ form_values.source_code|default:"—" }}</strong>
+            <strong id="review-source">{{ selected_source_label|default:"—" }}</strong>
           </div>
 
           <div class="review-card">
@@ -540,20 +544,20 @@
     <div class="section-title">
       <span>05</span>
       <div>
-        <h3>Liens d'export Opendatasoft</h3>
-        <p>Copiez le lien CSV et ajoutez-le dans Opendatasoft comme ressource HTTP/URL.</p>
+        <h3>Liens d'export OpenDataSoft</h3>
+        <p>Copiez le lien CSV et ajoutez-le dans OpenDataSoft comme ressource HTTP/URL.</p>
       </div>
     </div>
 
     {% if export_is_local %}
       <div class="alert alert-warning app-alert mt-3">
-        Ce lien est local. Pour Opendatasoft, l'API doit être déployée avec une URL HTTPS publique.
+        Ce lien est local. Pour OpenDataSoft, l'API doit être déployée avec une URL HTTPS publique.
       </div>
     {% endif %}
 
     <div class="export-note">
       <strong>Important :</strong>
-      Opendatasoft n'utilise aucune clé API pour lire cette ressource.
+      OpenDataSoft n'utilise aucune clé API pour lire cette ressource.
       Le portail doit pouvoir accéder à une URL publique HTTPS. Le token dans le lien protège uniquement l'API d'export DataBridge.
     </div>
 
@@ -573,7 +577,7 @@
         <div class="export-link-card-head">
           <div>
             <span class="eyebrow">Titre final</span>
-            <strong>Titre à utiliser dans Opendatasoft</strong>
+            <strong>Titre à utiliser dans OpenDataSoft</strong>
           </div>
           <button
             class="copy-icon-btn"
@@ -621,7 +625,7 @@
         <div class="export-link-card-head">
           <div>
             <span class="eyebrow">CSV</span>
-            <strong>Lien CSV pour Opendatasoft</strong>
+            <strong>Lien CSV pour OpenDataSoft</strong>
           </div>
           <button
             class="copy-icon-btn"
@@ -722,7 +726,7 @@
     <span class="eyebrow">Étape 05 — Contrôle et export</span>
     <h3>Prévisualiser puis générer les liens</h3>
     <p>
-      Commencez par générer un aperçu réel des données. Créez ensuite les URLs stables pour Opendatasoft.
+      Commencez par générer un aperçu réel des données. Créez ensuite les URLs stables pour OpenDataSoft.
     </p>
   </div>
 
@@ -746,7 +750,7 @@
       value="generate_links"
       {% if export_links or not preview_ready or indicator_limit_exceeded %}disabled aria-disabled="true"{% endif %}
     >
-      {% if export_links %}Liens déjà générés{% else %}Générer les liens Opendatasoft{% endif %}
+      {% if export_links %}Liens déjà générés{% else %}Générer les liens OpenDataSoft{% endif %}
     </button>
     {% if False and export_links %}
       <button

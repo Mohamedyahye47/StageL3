@@ -85,8 +85,10 @@
             <div class="rank-row">
               <span>{{ forloop.counter }}</span>
               <div style="flex:1; min-width:0;">
-                <strong>{{ indicator.code }}</strong>
-                <small>{{ indicator.name }}</small>
+                <strong>{{ indicator.name|default:indicator.code }}</strong>
+                {% if indicator.code %}
+                  <small>{{ indicator.code }}</small>
+                {% endif %}
               </div>
               <em>{{ indicator.count }}</em>
             </div>

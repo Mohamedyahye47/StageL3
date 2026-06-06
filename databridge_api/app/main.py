@@ -41,8 +41,8 @@ app = FastAPI(
     description=(
         "API metadata-only de Richat DataBridge. "
         "La creation de dataset reste ephemere jusqu'a la generation des liens d'export. "
-        "Le backend expose des endpoints CSV/JSON stables consommables par Richat Opendatasoft. "
-        "Le workflow actif repose uniquement sur l'API d'export Opendatasoft."
+        "Le backend expose des endpoints CSV/JSON stables consommables par Richat OpenDataSoft. "
+        "Le workflow actif repose uniquement sur l'API d'export OpenDataSoft."
     ),
     version="2.0.0",
     lifespan=lifespan,

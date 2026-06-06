@@ -21,8 +21,8 @@ class DatasetCreateForm(forms.Form):
     )
     indicator_ids = forms.MultipleChoiceField(required=False)
     country_id = forms.IntegerField()
-    start_date = forms.DateField(input_formats=["%Y-%m-%d"])
-    end_date = forms.DateField(input_formats=["%Y-%m-%d"])
+    start_date = forms.DateField(input_formats=["%Y-%m-%d", "%d/%m/%Y"])
+    end_date = forms.DateField(input_formats=["%Y-%m-%d", "%d/%m/%Y"])
     title = forms.CharField(max_length=180)
     description = forms.CharField()
 

@@ -441,7 +441,7 @@ def check_export_mode(db: Session) -> dict[str, Any]:
         "ok": True,
         "provider": REMOTE_PROVIDER,
         "dataset_count": len(local_datasets),
-        "message": "Mode API d'export Opendatasoft actif. Aucune synchronisation externe n'est necessaire.",
+        "message": "Mode API d'export OpenDataSoft actif. Aucune synchronisation externe n'est nécessaire.",
     }
 
 

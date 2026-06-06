@@ -210,7 +210,7 @@ def api_update_ai_runtime_config(
     ai_business_rules.AI_MAX_CANDIDATES = payload.AI_MAX_CANDIDATES
 
     current = _current_ai_runtime_config()
-    current.message = "Configuration IA appliquée en mémoire. Elle sera perdue au redémarrage du serveur FastAPI."
+    current.message = "Configuration IA appliquée pour la session en cours."
     return current
 
 
@@ -521,5 +521,5 @@ def api_export_health():
         "is_local_url": export_api_is_local(),
         "opendatasoft_link_mode": True,
         "source_limits": SOURCE_LIMITS,
-        "message": "API d'export active. Generez un lien CSV puis utilisez-le comme ressource HTTP/URL dans Opendatasoft.",
+        "message": "API d'export active. Générez un lien CSV puis utilisez-le comme ressource HTTP/URL dans OpenDataSoft.",
     }

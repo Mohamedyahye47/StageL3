@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from io import BytesIO
 from typing import Any
 
@@ -62,17 +63,7 @@ def build_export_chronology_png(db: Session) -> bytes | None:
             f"{n} export(s) enregistré(s). Ajoutez au moins {MIN_POINTS_SCATTER} exports.",
         )
 
-    x = [r["ordre"] for r in records]
-    y = [r["lignes"] for r in records]
-    etats = [r["etat"] for r in records]
-
-    if n < MIN_POINTS_MARGINAL:
-        return _construire_scatter_simple(x, y, etats, n)
-
-    if n < MIN_POINTS_KDE:
-        return _construire_scatter_histogrammes(x, y, etats, n)
-
-    return _construire_jointplot_kde(x, y, etats, n)
+    return _construire_barres_chronologie(records)
 
 
 # ── Chargement des données ────────────────────────────────────────────────────
@@ -97,6 +88,7 @@ def _charger_enregistrements(db: Session) -> list[dict[str, Any]]:
             "duree": float(log.duration_seconds or 0),
             "etat": _libelle_etat(log.status),
             "slug": dataset.slug,
+            "date": log.created_at or dataset.created_at or dataset.updated_at,
         })
 
     if records:
@@ -114,9 +106,55 @@ def _charger_enregistrements(db: Session) -> list[dict[str, Any]]:
             "duree": 0,
             "etat": _libelle_etat(dataset.status),
             "slug": dataset.slug,
+            "date": dataset.created_at or dataset.updated_at,
         })
 
     return records
+
+
+def _construire_barres_chronologie(records: list[dict[str, Any]]) -> bytes:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=_FIGSIZE, constrained_layout=True)
+    fig.patch.set_facecolor("white")
+
+    x = list(range(len(records)))
+    y = [int(record.get("lignes") or 0) for record in records]
+    etats = [str(record.get("etat") or "Inconnu") for record in records]
+    labels = _date_labels(records)
+    colors = [_PALETTE.get(etat, _PALETTE["Inconnu"]) for etat in etats]
+
+    ax.bar(x, y, color=colors, edgecolor="#dbeafe", linewidth=0.8, alpha=0.92)
+    ax.set_title("Chronologie des exports", fontsize=13, fontweight="bold", pad=12)
+    ax.set_xlabel("Date de création", fontsize=10)
+    ax.set_ylabel("Lignes générées", fontsize=10)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=8)
+    ax.grid(axis="y", alpha=0.24)
+
+    for xi, yi in zip(x, y):
+        ax.annotate(
+            str(yi),
+            xy=(xi, yi),
+            xytext=(0, 4),
+            textcoords="offset points",
+            ha="center",
+            fontsize=7.5,
+            color="#475569",
+        )
+
+    ax.annotate(
+        f"{len(records)} {_pluralize(len(records), 'export', 'exports')}",
+        xy=(0.99, 0.01),
+        xycoords="axes fraction",
+        ha="right",
+        va="bottom",
+        fontsize=7.5,
+        color="#94a3b8",
+    )
+    return _sauvegarder(fig)
 
 
 # ── Modes de rendu ────────────────────────────────────────────────────────────
@@ -299,7 +337,7 @@ def _creer_grille(figsize: tuple[float, float]):
 # ── Helpers visuels ───────────────────────────────────────────────────────────
 
 def _formater_axes_joint(ax) -> None:
-    ax.set_xlabel("Ordre chronologique", fontsize=10)
+    ax.set_xlabel("Date de création", fontsize=10)
     ax.set_ylabel("Lignes générées", fontsize=10)
 
 
@@ -341,6 +379,43 @@ def _calcul_bins(values: list) -> int | list[float]:
         v = float(list(unique)[0])
         return [v - 0.5, v + 0.5]
     return min(10, max(3, len(values) // 2))
+
+
+def _date_labels(records: list[dict[str, Any]]) -> list[str]:
+    parsed_dates = [_parse_datetime(record.get("date")) for record in records]
+    known_dates = [value for value in parsed_dates if value is not None]
+    months = {(value.year, value.month) for value in known_dates}
+    use_month_labels = len(months) > 1
+    return [
+        _format_date_label(value, use_month=use_month_labels)
+        for value in parsed_dates
+    ]
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _format_date_label(value: datetime | None, *, use_month: bool) -> str:
+    if value is None:
+        return "Date inconnue"
+    if not use_month:
+        return value.strftime("%d/%m/%Y")
+    month_names = (
+        "Janv.", "Févr.", "Mars", "Avr.", "Mai", "Juin",
+        "Juil.", "Août", "Sept.", "Oct.", "Nov.", "Déc.",
+    )
+    return f"{month_names[value.month - 1]} {value.year}"
+
+
+def _pluralize(count: int, singular: str, plural: str) -> str:
+    return singular if count == 1 else plural
 
 
 def _sauvegarder(fig) -> bytes:

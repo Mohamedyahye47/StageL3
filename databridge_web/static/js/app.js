@@ -234,7 +234,11 @@
   }
 
   function updateReview() {
-    if (reviewSource) reviewSource.textContent = sourceSelect.value || "—";
+    if (reviewSource) {
+      const sourceCode = sourceSelect.value || "";
+      const limit = currentSourceLimit();
+      reviewSource.textContent = sourceCode ? `${limit.label} (${sourceCode})` : "—";
+    }
     if (reviewCountry) {
       const opt = countrySelect.options[countrySelect.selectedIndex];
       reviewCountry.textContent = opt && opt.value ? opt.textContent : "—";

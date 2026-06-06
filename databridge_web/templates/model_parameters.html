@@ -36,7 +36,7 @@
 
   {% if has_session_overrides %}
     <div class="alert alert-info app-alert">
-      Des paramètres sont enregistrés pour cette session. Ils ne modifient pas les variables d'environnement du backend.
+      Des paramètres sont enregistrés pour cette session. Ils remplacent l'affichage courant sans changer la configuration permanente.
     </div>
   {% endif %}
 
@@ -46,7 +46,7 @@
     </div>
   {% elif runtime_config %}
     <div class="alert alert-info app-alert">
-      Configuration appliquée en mémoire côté FastAPI. Elle reste active jusqu'au redémarrage du serveur backend.
+      Cette configuration est active pour la session en cours.
     </div>
   {% endif %}
 
@@ -67,7 +67,6 @@
           {% for field in group.fields %}
             <label class="parameter-field {% if field.type == 'boolean' %}toggle-field{% endif %}">
               <span class="parameter-label">{{ field.label }}</span>
-              <small>{{ field.effective_env|default:field.name }}</small>
 
               {% if field.type == "range" %}
                 <div class="range-row">
@@ -122,8 +121,8 @@
         <span class="eyebrow">Session courante</span>
         <h3>Enregistrer la configuration affichée</h3>
         <p>
-          Ces paramètres sont appliqués en mémoire côté FastAPI pour la session de démonstration.
-          Pour une modification permanente après redémarrage, mettez à jour les variables d'environnement.
+          Cette configuration est active pour la session en cours.
+          Pour la rendre permanente, contactez l'administrateur système.
         </p>
       </div>
       <div class="d-flex gap-2 flex-wrap">
