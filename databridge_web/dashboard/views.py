@@ -405,11 +405,11 @@ def _safe_backend_error(exc_or_text: Exception | str | None) -> str | None:
     if "127.0.0.1" in lowered or "localhost" in lowered:
         return (
             "Configuration invalide : une URL locale 127.0.0.1/localhost est encore utilisée. "
-            "En production, utilisez l'URL HTTPS du service ASGI unifié."
+            "En production, utilisez l'URL HTTPS publique du service d'export."
         )
 
     if "connection refused" in lowered or "failed to establish a new connection" in lowered:
-        return "Le service interne est indisponible pour le moment. Vérifiez le serveur ASGI unifié."
+        return "Le service interne est indisponible pour le moment."
 
     if "read timed out" in lowered or "timeout" in lowered:
         return "Le service met trop de temps à répondre. Réessayez après le réveil Render."
@@ -665,16 +665,17 @@ def ai_assistant(request):
 
 def dashboard(request):
     datasets, backend_error = _load_datasets()
-    summary = _build_summary(datasets)
-    top_indicators = _top_indicators_from_details(datasets[:8]) if datasets else []
-    chronology_chart_url = reverse("dashboard:export_chronology_chart") if datasets else None
+    display_datasets = _deduplicate_catalog_datasets(datasets)
+    summary = _build_summary(display_datasets)
+    top_indicators = _top_indicators_from_details(display_datasets[:8]) if display_datasets else []
+    chronology_chart_url = reverse("dashboard:export_chronology_chart") if display_datasets else None
 
     return render(
         request,
         "dashboard.html",
         {
             "active_page": "dashboard",
-            "datasets": datasets[:6],
+            "datasets": display_datasets[:6],
             "summary": summary,
             "top_indicators": top_indicators,
             "chronology_chart_url": chronology_chart_url,
@@ -715,7 +716,7 @@ def dataset_list(request):
                         object_type="export_dataset",
                         object_id=slug,
                     )
-                    messages.success(request, f"Jeu de données supprimé : {slug}")
+                    messages.success(request, "Jeu de données supprimé du catalogue local.")
                 except (BackendUnavailable, ApiError) as exc:
                     messages.error(request, str(exc))
 
@@ -726,20 +727,22 @@ def dataset_list(request):
     country = request.GET.get("country", "").strip()
     status = request.GET.get("status", "").strip()
 
+    display_datasets = _deduplicate_catalog_datasets(datasets)
+
     countries = sorted({
         item.get("country", {}).get("name", "")
-        for item in datasets
+        for item in display_datasets
         if item.get("country")
     })
 
     statuses = sorted({
         item.get("last_export_status") or "inconnu"
-        for item in datasets
+        for item in display_datasets
     })
 
     filtered = []
 
-    for item in datasets:
+    for item in display_datasets:
         haystack = " ".join(
             [
                 item.get("title", ""),
@@ -771,8 +774,10 @@ def dataset_list(request):
             "active_page": "datasets",
             "datasets": list(page_obj.object_list),
             "page_obj": page_obj,
-            "total_count": len(datasets),
+            "total_count": len(display_datasets),
             "filtered_count": len(filtered),
+            "total_count_label": _count_label(len(display_datasets), "ressource", "ressources"),
+            "filtered_count_label": _count_label(len(filtered), "résultat", "résultats"),
             "countries": countries,
             "statuses": statuses,
             "filters": {
@@ -949,7 +954,7 @@ def dataset_create(request):
                         request.session["last_export_links"] = result
                         messages.success(
                             request,
-                            f"Liens d'export generes pour : {result['slug']}",
+                            "Liens d'export générés.",
                         )
 
                         if "ai_recommendation" in request.session:
@@ -1473,7 +1478,7 @@ def ajax_dataset_generate_links(request):
             "message": (
                 "Liens déjà générés pour cette sélection."
                 if links_already_generated
-                else f"Liens d'export générés pour : {export_links.get('slug', '')}"
+                else "Liens d'export générés."
             ),
             "slug": export_links.get("slug"),
             "indicator_count": export_links.get("indicator_count"),
@@ -1547,6 +1552,28 @@ def _load_datasets() -> tuple[list[dict[str, Any]], str | None]:
         return api_client.get_export_datasets(), None
     except (BackendUnavailable, ApiError) as exc:
         return [], _safe_backend_error(exc)
+
+
+def _catalog_dataset_key(item: dict[str, Any]) -> tuple[str, str]:
+    title = _normalize_label(item.get("title") or item.get("slug") or "")
+    country = _normalize_label(item.get("country", {}).get("name") or "")
+    return title, country
+
+
+def _deduplicate_catalog_datasets(datasets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str]] = set()
+    unique: list[dict[str, Any]] = []
+    for item in datasets:
+        key = _catalog_dataset_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique
+
+
+def _count_label(count: int, singular: str, plural: str) -> str:
+    return f"{count} {singular if count == 1 else plural}"
 
 
 def _load_builder_catalog(

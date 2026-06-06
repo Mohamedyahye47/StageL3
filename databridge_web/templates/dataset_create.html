@@ -131,7 +131,7 @@
             <option value="">Sélectionner un jeu de données</option>
             {% for dataset in datasets %}
               <option value="{{ dataset.slug }}" {% if form_values.existing_slug == dataset.slug %}selected{% endif %}>
-                {{ dataset.title }} — {{ dataset.slug }}
+                {{ dataset.title }} — version courante v{{ dataset.latest_version }}
               </option>
             {% endfor %}
           </select>

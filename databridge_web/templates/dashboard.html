@@ -120,7 +120,6 @@
               <h4>{{ dataset.title }}</h4>
               <p>{{ dataset.description|default:""|truncatechars:140 }}</p>
               <div class="chip-row">
-                <span>{{ dataset.slug }}</span>
                 <span>{{ dataset.country.name }}</span>
                 <span>v{{ dataset.latest_version }}</span>
               </div>

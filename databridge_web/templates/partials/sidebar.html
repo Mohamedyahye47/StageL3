@@ -70,9 +70,9 @@
   </nav>
 
   <div class="sidebar-panel">
-    <span class="eyebrow">Mode opérationnel</span>
-    <strong>API d'export active</strong>
-    <p>Interface Django connectée au serveur ASGI unifié.</p>
+    <span class="eyebrow">État du service</span>
+    <strong>{% if backend_error %}Service indisponible{% else %}Service disponible{% endif %}</strong>
+    <p>{% if backend_error %}La plateforme rencontre une difficulté de connexion.{% else %}La plateforme est prête pour la création et l'export des jeux de données.{% endif %}</p>
     <div class="sidebar-status {% if backend_error %}disconnected{% endif %}">
       <span class="sidebar-status-dot"></span>
       <span>{% if backend_error %}Déconnecté{% else %}Connecté{% endif %}</span>

@@ -30,6 +30,8 @@ def status_label(value: object) -> str:
         "error": "Erreur",
         "echoue": "Erreur",
         "failed": "Erreur",
+        "refused": "Refusé",
+        "refuse": "Refusé",
         "acceptable": "Acceptable",
         "weak": "Résultat faible",
         "export_links_ready": "Liens prêts",

@@ -9,16 +9,13 @@
     <div class="alert alert-warning app-alert">{{ backend_error }}</div>
   {% endif %}
 
-  {# ── Page Header ─────────────────────────────────────── #}
   <div class="catalogue-header">
     <div>
       <h2>Catalogue de données</h2>
-      <p>Explorez les jeux de données économiques disponibles sous forme de liens d'export API — {{ total_count }} ressource(s).</p>
+      <p>Explorez les jeux de données économiques disponibles sous forme de liens d'export — {{ total_count_label }}.</p>
     </div>
-
   </div>
 
-  {# ── Search Bar ──────────────────────────────────────── #}
   <form method="get" class="catalogue-search-form" id="catalogue-search-form">
     <div class="catalogue-search-wrap">
       <input
@@ -26,7 +23,7 @@
         type="search"
         name="q"
         value="{{ filters.q }}"
-        placeholder="Rechercher par titre, slug, pays, lien d'export..."
+        placeholder="Rechercher par titre, pays ou lien d'export..."
         autocomplete="off"
       >
 
@@ -47,17 +44,14 @@
     </div>
   </form>
 
-  {# ── Catalogue layout: filter sidebar + card grid ────── #}
   <div class="catalogue-layout">
-
-    {# ── Filter Sidebar ──────────────────────────────── #}
     <aside class="catalogue-filter">
       <form method="get" id="filter-form">
         {% if filters.q %}
           <input type="hidden" name="q" value="{{ filters.q }}">
         {% endif %}
 
-        <div class="filter-result-count">{{ filtered_count }} résultat(s)</div>
+        <div class="filter-result-count">{{ filtered_count_label }}</div>
         <hr class="filter-divider">
 
         <a
@@ -68,7 +62,6 @@
           + Créer un jeu de données
         </a>
 
-        {# Country filter #}
         {% if countries %}
           <div class="filter-section">
             <span class="filter-section-label">Pays</span>
@@ -100,7 +93,6 @@
           <hr class="filter-divider">
         {% endif %}
 
-        {# Filtre etat #}
         {% if statuses %}
           <div class="filter-section">
             <span class="filter-section-label">État</span>
@@ -125,12 +117,7 @@
                   {% if filters.status == item %}checked{% endif %}
                   onchange="document.getElementById('filter-form').submit()"
                 >
-                <span>
-                  {% if item == "success" %}Succès
-                  {% elif item == "draft" %}Brouillon
-                  {% elif item == "archived" %}Archivé
-                  {% else %}{{ item }}{% endif %}
-                </span>
+                <span>{{ item|status_label }}</span>
               </label>
             {% endfor %}
           </div>
@@ -139,7 +126,7 @@
 
         {% if filters.q or filters.country or filters.status %}
           <a href="{% url 'dashboard:dataset_list' %}" class="filter-clear-link">
-            ✕ Réinitialiser les filtres
+            Réinitialiser les filtres
           </a>
         {% endif %}
 
@@ -149,9 +136,7 @@
       </form>
     </aside>
 
-    {# ── Card Grid ───────────────────────────────────── #}
     <div class="catalogue-content">
-
       {% if datasets %}
         <div class="catalogue-card-grid">
           {% for dataset in datasets %}
@@ -181,7 +166,6 @@
                   {% if dataset.country.name %}
                     <span class="ods-chip">{{ dataset.country.name }}</span>
                   {% endif %}
-                  <span class="ods-chip">{{ dataset.slug }}</span>
                 </div>
 
                 <div class="ods-card-meta">
@@ -193,6 +177,7 @@
                 <a class="btn btn-soft btn-sm" href="{% url 'dashboard:dataset_detail' dataset.slug %}">
                   Voir détail
                 </a>
+
                 {% if dataset.csv_url %}
                   <button
                     class="copy-icon-btn"
@@ -213,11 +198,11 @@
                 <form
                   method="post"
                   style="display:inline;"
-                  onsubmit="return confirm(&quot;Supprimer cette configuration d'export du miroir local ? Cette action est irreversible.&quot;);"
+                  onsubmit="return confirm(&quot;Supprimer cette configuration d'export du catalogue local ? Cette action est irréversible.&quot;);"
                 >
                   {% csrf_token %}
                   <input type="hidden" name="slug" value="{{ dataset.slug }}">
-                  <button class="btn btn-danger btn-sm" type="submit" name="action" value="delete">
+                  <button class="btn btn-delete-subtle btn-sm" type="submit" name="action" value="delete">
                     Supprimer
                   </button>
                 </form>
@@ -259,11 +244,9 @@
             <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">
               Créer un jeu de données
             </a>
-
           </div>
         </div>
       {% endif %}
-
     </div>
   </div>
 {% endblock %}

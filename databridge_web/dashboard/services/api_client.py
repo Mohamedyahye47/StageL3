@@ -208,7 +208,7 @@ def get_export_health() -> dict[str, Any]:
         "is_local_url": app_config.export_api_is_local(),
         "opendatasoft_link_mode": True,
         "source_limits": app_config.SOURCE_LIMITS,
-        "message": "API d'export active dans le serveur ASGI unifié.",
+        "message": "Service d'export disponible.",
     }
 
 
@@ -286,7 +286,7 @@ def update_ai_runtime_config(payload: dict[str, Any]) -> dict[str, Any]:
     app_config.SOURCE_LIMITS["WB"]["max_indicators_per_dataset"] = config.WB_MAX_INDICATORS_PER_DATASET
     ai_business_rules.AI_MAX_CANDIDATES = config.AI_MAX_CANDIDATES
     current = _current_ai_runtime_config()
-    current.message = "Configuration IA appliquée en mémoire. Elle sera perdue au redémarrage du serveur ASGI."
+    current.message = "Configuration IA appliquée en mémoire. Elle sera perdue au redémarrage du service."
     return current.model_dump(mode="json")
 
 

@@ -2173,6 +2173,19 @@ textarea.form-control {
 
 .filter-clear-link:hover { text-decoration: underline; }
 
+.btn-delete-subtle {
+  background: transparent;
+  border: 1px solid #f1c7c7;
+  color: #9f1d2f;
+  font-weight: 700;
+}
+
+.btn-delete-subtle:hover {
+  background: #fff1f2;
+  border-color: #e8a3a3;
+  color: #7f1725;
+}
+
 /* ── ODS Card Grid ───────────────────────────────────────── */
 .catalogue-card-grid {
   display: grid;
