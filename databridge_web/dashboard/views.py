@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 from datetime import date
 import hmac
 import json
@@ -1975,13 +1974,6 @@ def _build_export_payload(cleaned: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_summary(datasets: list[dict[str, Any]]) -> dict[str, int]:
-    return {
-        "datasets": len(datasets),
-        "versions": sum(int(item.get("latest_version") or 0) for item in datasets),
-        "countries": len({item.get("country", {}).get("name") for item in datasets if item.get("country")}),
-        "indicators": _count_indicators_from_details(datasets[:8]),
-    }
 
 
 def _empty_dashboard_metrics() -> dict[str, Any]:
@@ -1989,12 +1981,17 @@ def _empty_dashboard_metrics() -> dict[str, Any]:
         "summary": {
             "datasets": 0,
             "exports": 0,
+            "exports_logged": 0,
+            "exports_uses_dataset_fallback": False,
+            "exports_label": "Exports générés",
+            "exports_note": "Générations journalisées",
             "countries": 0,
             "indicators": 0,
             "sources": 0,
             "last_export_label": "Aucun export",
         },
         "exports_timeline": [],
+        "timeline_label": "Exports générés",
         "top_indicators": [],
         "recent_exports": [],
         "process_performance": [],
@@ -2014,36 +2011,6 @@ def _empty_dashboard_metrics() -> dict[str, Any]:
         },
         "warnings": [],
     }
-
-
-def _count_indicators_from_details(datasets: list[dict[str, Any]]) -> int:
-    indicator_ids: set[int] = set()
-    for item in datasets:
-        try:
-            detail = api_client.get_dataset_detail(item["slug"])
-        except (BackendUnavailable, ApiError):
-            continue
-        for version in detail.get("versions", []):
-            for indicator in version.get("indicators", []):
-                indicator_ids.add(indicator["id"])
-    return len(indicator_ids)
-
-
-def _top_indicators_from_details(datasets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    counter: Counter[tuple[str, str]] = Counter()
-    for item in datasets:
-        try:
-            detail = api_client.get_dataset_detail(item["slug"])
-        except (BackendUnavailable, ApiError):
-            continue
-        for version in detail.get("versions", []):
-            for indicator in version.get("indicators", []):
-                counter[(indicator.get("code", ""), indicator.get("name", ""))] += 1
-    return [
-        {"code": code, "name": name or code, "count": count}
-        for (code, name), count in counter.most_common(6)
-    ]
-
 
 def _manifest_value(manifest: dict[str, Any], *keys: str, default=None):
     for key in keys:

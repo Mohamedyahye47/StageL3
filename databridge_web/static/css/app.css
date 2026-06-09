@@ -2,7 +2,7 @@
    RICHAT DATABRIDGE — Premium Design System v2
    ============================================================ */
 
-/* Claude.ai uses the system UI font stack — no external font needed */
+/* System UI font stack — no external font needed */
 
 /* ── Tokens ─────────────────────────────────────────────── */
 :root {
@@ -463,9 +463,9 @@ p,
 
 .topbar h1 {
   margin: 0;
-  font-size: 15px;           /* matches Claude.ai page-title size */
+  font-size: 15px;           /* compact page-title size */
   line-height: 1.4;
-  font-weight: 600;          /* semibold — Claude uses 500–600 for UI headings */
+  font-weight: 600;          /* semibold UI heading */
   letter-spacing: -.01em;
   color: var(--text);
   white-space: nowrap;

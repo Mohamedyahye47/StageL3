@@ -25,22 +25,35 @@ MONTHS_FR = (
     "Dec.",
 )
 
+MIN_AI_CALLS_FOR_SUCCESS_RATE = 5
+
 
 def build_dashboard_metrics(db: Any) -> dict[str, Any]:
-    """Build dashboard data from real DB/log records only."""
+    """Build dashboard data from real DB/log records only.
+
+    The dashboard must stay honest: when a metric is not measured, the returned
+    labels say so instead of replacing it silently with another metric.
+    """
+
+    dataset_events = lire_dernieres_mesures("datasets", limite=80)
+    ai_events = lire_dernieres_mesures("ia", limite=120)
+    etl_events = lire_dernieres_mesures("wb_metadata_quality", limite=20)
 
     timeline = _build_exports_timeline(db)
     recent_exports = _build_recent_exports(db)
+    timeline_uses_logs = any(item.get("source") == "export_logs" for item in timeline)
+
     return {
         "summary": _build_summary(db),
         "exports_timeline": timeline,
+        "timeline_label": "Exports générés" if timeline_uses_logs else "Jeux de données exposés",
         "top_indicators": _build_top_indicators(db),
         "recent_exports": recent_exports,
-        "process_performance": _build_process_performance(db),
-        "ai_summary": _build_ai_summary(),
-        "ai_models": _build_ai_models(),
+        "process_performance": _build_process_performance(db, dataset_events, ai_events, etl_events),
+        "ai_summary": _build_ai_summary(ai_events),
+        "ai_models": _build_ai_models(ai_events),
         "opendatasoft": _build_opendatasoft_summary(),
-        "warnings": _build_warnings(timeline),
+        "warnings": _build_warnings(timeline, ai_events),
     }
 
 
@@ -66,9 +79,22 @@ def _build_summary(db: Any) -> dict[str, Any]:
         ("generation_liens",),
     ) or _scalar_text(db, "SELECT MAX(created_at) FROM export_datasets")
 
+    uses_dataset_fallback = generation_count == 0 and dataset_count > 0
+    exports_value = dataset_count if uses_dataset_fallback else generation_count
+    exports_label = "Jeux de données exposés" if uses_dataset_fallback else "Exports générés"
+    exports_note = (
+        "Aucun journal de génération disponible"
+        if uses_dataset_fallback
+        else "Générations journalisées"
+    )
+
     return {
         "datasets": dataset_count,
-        "exports": generation_count or dataset_count,
+        "exports": exports_value,
+        "exports_logged": generation_count,
+        "exports_uses_dataset_fallback": uses_dataset_fallback,
+        "exports_label": exports_label,
+        "exports_note": exports_note,
         "countries": country_count,
         "indicators": indicator_count,
         "sources": source_count,
@@ -78,6 +104,7 @@ def _build_summary(db: Any) -> dict[str, Any]:
 
 
 def _build_exports_timeline(db: Any) -> list[dict[str, Any]]:
+    source = "export_logs"
     rows = _rows(
         db,
         """
@@ -93,6 +120,7 @@ def _build_exports_timeline(db: Any) -> list[dict[str, Any]]:
         ("generation_liens",),
     )
     if not rows:
+        source = "export_datasets"
         rows = _rows(
             db,
             """
@@ -112,6 +140,7 @@ def _build_exports_timeline(db: Any) -> list[dict[str, Any]]:
             "date": str(row.get("event_date") or ""),
             "exports": _to_int(row.get("export_count")),
             "rows": _to_int(row.get("row_count")),
+            "source": source,
         }
         for row in rows
         if row.get("event_date")
@@ -126,7 +155,7 @@ def _build_exports_timeline(db: Any) -> list[dict[str, Any]]:
             key = item["date"][:7]
             bucket = monthly.setdefault(
                 key,
-                {"date": key, "label": _format_month_label(key), "exports": 0, "rows": 0},
+                {"date": key, "label": _format_month_label(key), "exports": 0, "rows": 0, "source": source},
             )
             bucket["exports"] += item["exports"]
             bucket["rows"] += item["rows"]
@@ -138,6 +167,7 @@ def _build_exports_timeline(db: Any) -> list[dict[str, Any]]:
             "label": _format_short_date(item["date"]),
             "exports": item["exports"],
             "rows": item["rows"],
+            "source": item["source"],
         }
         for item in daily[-14:]
     ]
@@ -201,7 +231,7 @@ def _build_recent_exports(db: Any) -> list[dict[str, Any]]:
     return [
         {
             "slug": str(row.get("slug") or ""),
-            "title": str(row.get("title") or "Jeu de donnees"),
+            "title": str(row.get("title") or "Jeu de données"),
             "description": str(row.get("description") or ""),
             "status": _status_label(row.get("status")),
             "status_class": _status_class(row.get("status")),
@@ -217,19 +247,20 @@ def _build_recent_exports(db: Any) -> list[dict[str, Any]]:
     ]
 
 
-def _build_process_performance(db: Any) -> list[dict[str, Any]]:
-    dataset_events = lire_dernieres_mesures("datasets", limite=80)
-    ai_events = lire_dernieres_mesures("ia", limite=80)
-    etl_events = lire_dernieres_mesures("wb_metadata_quality", limite=20)
-
+def _build_process_performance(
+    db: Any,
+    dataset_events: list[dict[str, Any]],
+    ai_events: list[dict[str, Any]],
+    etl_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     return [
         _process_metric(
-            "Apercu dataset",
+            "Aperçu dataset",
             _filter_events(dataset_events, "apercu_dataset"),
             "logs/mesures/mesures_datasets.jsonl",
         ),
         _process_metric(
-            "Generation CSV/JSON",
+            "Génération CSV/JSON",
             _filter_events(dataset_events, "generation_liens_dataset"),
             "logs/mesures/mesures_datasets.jsonl",
             fallback=_export_log_duration_summary(db),
@@ -239,8 +270,7 @@ def _build_process_performance(db: Any) -> list[dict[str, Any]]:
     ]
 
 
-def _build_ai_summary() -> dict[str, Any]:
-    events = lire_dernieres_mesures("ia", limite=80)
+def _build_ai_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     duration_summary = _duration_summary(events)
     return {
         "provider": ai_assistant_service.AI_PROVIDER,
@@ -252,18 +282,23 @@ def _build_ai_summary() -> dict[str, Any]:
     }
 
 
-def _build_ai_models() -> list[dict[str, Any]]:
-    events = lire_dernieres_mesures("ia", limite=120)
+def _build_ai_models(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for event in events:
-        provider = str(event.get("fournisseur") or event.get("provider") or "non renseigne")
-        model = str(event.get("modele") or event.get("model") or "non renseigne")
+        provider = str(event.get("fournisseur") or event.get("provider") or "non renseigné")
+        model = str(event.get("modele") or event.get("model") or "non renseigné")
         grouped[(provider, model)].append(event)
 
     rows = []
     for (provider, model), model_events in grouped.items():
         duration_summary = _duration_summary(model_events)
         success_rate = _success_rate(model_events)
+        success_rate_label = ""
+        success_note = ""
+        if success_rate is not None and len(model_events) >= MIN_AI_CALLS_FOR_SUCCESS_RATE:
+            success_rate_label = f"{success_rate}% réussite"
+        elif success_rate is not None:
+            success_note = f"Taux non affiché : moins de {MIN_AI_CALLS_FOR_SUCCESS_RATE} appels"
         rows.append(
             {
                 "provider": provider,
@@ -271,8 +306,9 @@ def _build_ai_models() -> list[dict[str, Any]]:
                 "calls": len(model_events),
                 "avg_duration": duration_summary["avg_duration"],
                 "avg_duration_label": _format_duration(duration_summary["avg_duration"]),
-                "success_rate": success_rate,
-                "success_rate_label": f"{success_rate}% réussite" if success_rate is not None else "",
+                "success_rate": success_rate if len(model_events) >= MIN_AI_CALLS_FOR_SUCCESS_RATE else None,
+                "success_rate_label": success_rate_label,
+                "success_note": success_note,
             }
         )
     return sorted(rows, key=lambda item: item["calls"], reverse=True)[:6]
@@ -282,10 +318,10 @@ def _build_opendatasoft_summary() -> dict[str, Any]:
     mode = getattr(config, "ODS_PUBLISH_MODE", "manual_url")
     if mode == "manual_url":
         label = "Liens CSV/JSON préparés"
-        description = "OpenDataSoft consomme les URL publiques générées par DataBridge."
+        description = "Les URL CSV/JSON sont préparées pour être utilisées dans OpenDataSoft / Richat Data Hub."
     else:
         label = "Publication OpenDataSoft"
-        description = "Mode de publication configuré côté serveur."
+        description = "Un mode de publication OpenDataSoft est configuré côté serveur. Vérifier le flux réel avant de parler de publication automatique."
     return {
         "mode": mode,
         "label": label,
@@ -294,12 +330,12 @@ def _build_opendatasoft_summary() -> dict[str, Any]:
     }
 
 
-def _build_warnings(timeline: list[dict[str, Any]]) -> list[str]:
+def _build_warnings(timeline: list[dict[str, Any]], ai_events: list[dict[str, Any]]) -> list[str]:
     warnings = []
     if 0 < len(timeline) < 3:
         warnings.append("Nombre d'exports encore limité pour analyser une tendance fiable.")
-    if not lire_dernieres_mesures("ia", limite=1):
-        warnings.append("Aucune mesure IA recente n'est disponible dans les logs locaux.")
+    if not ai_events:
+        warnings.append("Aucune mesure IA récente n'est disponible dans les logs locaux.")
     return warnings
 
 
