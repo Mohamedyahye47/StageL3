@@ -8,41 +8,46 @@
     <div class="alert alert-warning app-alert">{{ backend_error }}</div>
   {% endif %}
 
-  {# ── Page Header ─────────────────────────────────────── #}
   <div class="page-intro">
     <div>
       <span class="eyebrow">Vue d'ensemble</span>
       <h2>Catalogue d'exports et signaux clés</h2>
-      <p>Suivez les ressources API générées et les exports générés.</p>
+      <p>Suivez les jeux de données générés, les indicateurs utilisés et les performances réellement mesurées.</p>
     </div>
     <a class="btn btn-primary" href="{% url 'dashboard:dataset_create' %}">Créer un jeu de données</a>
   </div>
 
-  {# ── Metric Summary ───────────────────────────────────── #}
-  <section class="metric-grid">
+  {% if dashboard_metrics.warnings %}
+    <div class="dashboard-warning-list">
+      {% for warning in dashboard_metrics.warnings %}
+        <div class="alert alert-info app-alert compact">{{ warning }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <section class="metric-grid dashboard-kpi-grid">
     <article class="metric-card accent-blue">
       <span>Jeux de données</span>
-      <strong>{{ summary.datasets }}</strong>
-      <small>Total exposé</small>
+      <strong>{{ summary.datasets|default:0 }}</strong>
+      <small>Total exposé dans DataBridge</small>
     </article>
     <article class="metric-card accent-teal">
-      <span>Exports publiés</span>
-      <strong>{{ summary.versions }}</strong>
-      <small>État courant</small>
+      <span>Exports générés</span>
+      <strong>{{ summary.exports|default:0 }}</strong>
+      <small>Dernier export : {{ summary.last_export_label|default:"Aucun export" }}</small>
     </article>
     <article class="metric-card accent-green">
       <span>Pays</span>
-      <strong>{{ summary.countries }}</strong>
-      <small>Couverture géographique</small>
+      <strong>{{ summary.countries|default:0 }}</strong>
+      <small>Couverture géographique réelle</small>
     </article>
     <article class="metric-card accent-indigo">
       <span>Indicateurs</span>
-      <strong>{{ summary.indicators }}</strong>
-      <small>Variables utilisées</small>
+      <strong>{{ summary.indicators|default:0 }}</strong>
+      <small>Variables utilisées dans les exports</small>
     </article>
   </section>
 
-  {# ── Activity + Rankings ──────────────────────────────── #}
   <section class="content-grid two-one dashboard-activity-grid" style="margin-bottom:16px;">
     <div class="panel chronology-panel" style="margin-bottom:0;">
       <div class="panel-heading">
@@ -50,24 +55,22 @@
           <span class="eyebrow">Activité</span>
           <h3>Chronologie des exports</h3>
         </div>
+        <span class="status-badge info">Navigateur</span>
       </div>
-      {% if summary.versions > 0 and summary.versions < 5 %}
-        <div class="alert alert-info app-alert compact">
-          Nombre d’exports insuffisant pour produire une visualisation fiable.
-        </div>
-      {% endif %}
-      {% if chronology_chart_url %}
-        <div class="chronology-chart-frame">
-          <img src="{{ chronology_chart_url }}" alt="Chronologie des exports" data-chart-image>
-          <div class="empty-state compact chronology-chart-fallback">
+
+      {% if dashboard_metrics.exports_timeline %}
+        {{ dashboard_metrics.exports_timeline|json_script:"exports-timeline-data" }}
+        <div class="dashboard-chart-frame">
+          <canvas id="exportsTimelineChart" height="285" aria-label="Chronologie des exports"></canvas>
+          <div class="empty-state compact" data-chart-fallback hidden>
             <strong>Graphique indisponible</strong>
-            <p>La chronologie sera affichée dès que le serveur pourra générer l'image PNG.</p>
+            <p>Les données existent, mais la bibliothèque de rendu n'a pas pu être chargée.</p>
           </div>
         </div>
       {% else %}
         <div class="empty-state compact">
           <strong>Aucun export</strong>
-          <p>La chronologie apparaîtra après la première génération de liens.</p>
+          <p>La chronologie apparaîtra après la première génération de liens CSV/JSON.</p>
         </div>
       {% endif %}
     </div>
@@ -85,7 +88,7 @@
             <div class="rank-row">
               <span>{{ forloop.counter }}</span>
               <div style="flex:1; min-width:0;">
-                <strong>{{ indicator.name|default:indicator.code }}</strong>
+                <strong>{{ indicator.name|default:"Indicateur" }}</strong>
                 {% if indicator.code %}
                   <small>{{ indicator.code }}</small>
                 {% endif %}
@@ -103,7 +106,104 @@
     </div>
   </section>
 
-  {# ── Jeux de données récents ──────────────────────────── #}
+  <section class="content-grid two-one dashboard-activity-grid dashboard-process-grid" style="margin-bottom:16px;">
+    <div class="panel" style="margin-bottom:0;">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Performance</span>
+          <h3>Processus mesurés</h3>
+        </div>
+      </div>
+      {% if dashboard_metrics.process_performance %}
+        <div class="performance-list">
+          {% for process in dashboard_metrics.process_performance %}
+            <div class="performance-row">
+              <div class="performance-row-head">
+                <div>
+                  <strong>{{ process.label }}</strong>
+                  <small>{{ process.source }}</small>
+                </div>
+                <span class="status-badge {% if process.measured %}info{% else %}muted{% endif %}">
+                  {{ process.avg_duration_label }}
+                </span>
+              </div>
+              <div class="performance-meter" aria-hidden="true">
+                <span style="width: {{ process.bar_percent }}%;"></span>
+              </div>
+              <small class="metric-muted">
+                {% if process.measured %}
+                  {{ process.count }} mesure{{ process.count|pluralize:"s" }} enregistrée{{ process.count|pluralize:"s" }}.
+                  Durée maximale : {{ process.max_duration_label }}.
+                {% else %}
+                  Aucune mesure disponible pour cette section.
+                {% endif %}
+              </small>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state compact">
+          <strong>Aucune mesure</strong>
+          <p>Les durées seront affichées dès que les journaux de mesure seront disponibles.</p>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="panel" style="margin-bottom:0;">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Assistant IA</span>
+          <h3>Configuration et mesures</h3>
+        </div>
+      </div>
+      <div class="ai-current-card">
+        <span>Configuration active</span>
+        <strong>{{ dashboard_metrics.ai_summary.provider }} · {{ dashboard_metrics.ai_summary.model }}</strong>
+        {% if dashboard_metrics.ai_summary.measured %}
+          <small>{{ dashboard_metrics.ai_summary.calls }} appel{{ dashboard_metrics.ai_summary.calls|pluralize:"s" }} journalisé{{ dashboard_metrics.ai_summary.calls|pluralize:"s" }} · moyenne {{ dashboard_metrics.ai_summary.avg_duration_label }}</small>
+        {% else %}
+          <small>Aucune mesure IA récente disponible.</small>
+        {% endif %}
+      </div>
+
+      {% if dashboard_metrics.ai_models %}
+        <div class="model-comparison-list">
+          {% for model in dashboard_metrics.ai_models %}
+            <div class="model-comparison-row">
+              <div>
+                <strong>{{ model.provider }}</strong>
+                <small>{{ model.model }}</small>
+              </div>
+              <div>
+                <span>{{ model.calls }} appel{{ model.calls|pluralize:"s" }}</span>
+                <small>{{ model.avg_duration_label }}{% if model.success_rate_label %} · {{ model.success_rate_label }}{% endif %}</small>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state compact">
+          <strong>Comparaison non disponible</strong>
+          <p>Le tableau comparatif apparaîtra lorsque plusieurs appels IA auront été journalisés.</p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel dashboard-ods-panel">
+    <div class="panel-heading">
+      <div>
+        <span class="eyebrow">OpenDataSoft</span>
+        <h3>Mode de publication</h3>
+      </div>
+      <span class="status-badge neutral">{{ dashboard_metrics.opendatasoft.label }}</span>
+    </div>
+    <p>{{ dashboard_metrics.opendatasoft.description }}</p>
+    {% if dashboard_metrics.opendatasoft.public_base_url %}
+      <small class="metric-muted">Base publique utilisée pour les liens : {{ dashboard_metrics.opendatasoft.public_base_url }}</small>
+    {% endif %}
+  </section>
+
   <section class="panel">
     <div class="panel-heading">
       <div>
@@ -118,16 +218,17 @@
         {% for dataset in datasets %}
           <article class="dataset-card">
             <div style="flex:1; min-width:0;">
-              <span class="status-badge success">API d'export</span>
+              <span class="status-badge {{ dataset.status_class }}">{{ dataset.status }}</span>
               <h4>{{ dataset.title }}</h4>
-              <p>{{ dataset.description|default:""|truncatechars:140 }}</p>
+              <p>{{ dataset.description|default:""|truncatechars:150 }}</p>
               <div class="chip-row">
-                <span>{{ dataset.country.name }}</span>
-                <span>v{{ dataset.latest_version }}</span>
+                <span>{{ dataset.country_name }}</span>
+                <span>{{ dataset.period }}</span>
+                <span>{{ dataset.indicator_count }} indicateur{{ dataset.indicator_count|pluralize:"s" }}</span>
               </div>
             </div>
             <a class="btn btn-outline-primary" style="flex-shrink:0;" href="{% url 'dashboard:dataset_detail' dataset.slug %}">
-              Détails
+              Voir détail
             </a>
           </article>
         {% endfor %}
@@ -140,4 +241,79 @@
       </div>
     {% endif %}
   </section>
+
+  {% if dashboard_metrics.exports_timeline %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+    <script>
+      (function () {
+        const dataNode = document.getElementById("exports-timeline-data");
+        const canvas = document.getElementById("exportsTimelineChart");
+        const fallback = document.querySelector("[data-chart-fallback]");
+        if (!dataNode || !canvas) return;
+
+        const timeline = JSON.parse(dataNode.textContent || "[]");
+        if (!window.Chart || !timeline.length) {
+          canvas.hidden = true;
+          if (fallback) fallback.hidden = false;
+          return;
+        }
+
+        const hasRows = timeline.some((item) => Number(item.rows || 0) > 0);
+        const datasets = [
+          {
+            label: "Exports générés",
+            data: timeline.map((item) => Number(item.exports || 0)),
+            backgroundColor: "rgba(37, 99, 235, 0.82)",
+            borderColor: "rgba(37, 99, 235, 1)",
+            borderRadius: 8,
+            maxBarThickness: 44
+          }
+        ];
+
+        if (hasRows) {
+          datasets.push({
+            type: "line",
+            label: "Lignes générées",
+            data: timeline.map((item) => Number(item.rows || 0)),
+            borderColor: "rgba(13, 148, 136, 1)",
+            backgroundColor: "rgba(13, 148, 136, 0.12)",
+            pointRadius: 3,
+            tension: 0.35,
+            yAxisID: "rows"
+          });
+        }
+
+        new Chart(canvas, {
+          type: "bar",
+          data: {
+            labels: timeline.map((item) => item.label),
+            datasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: true, labels: { boxWidth: 12, usePointStyle: true } },
+              tooltip: { mode: "index", intersect: false }
+            },
+            scales: {
+              x: { grid: { display: false } },
+              y: {
+                beginAtZero: true,
+                ticks: { precision: 0 },
+                title: { display: true, text: "Exports" }
+              },
+              rows: {
+                display: hasRows,
+                position: "right",
+                beginAtZero: true,
+                grid: { drawOnChartArea: false },
+                title: { display: hasRows, text: "Lignes" }
+              }
+            }
+          }
+        });
+      })();
+    </script>
+  {% endif %}
 {% endblock %}

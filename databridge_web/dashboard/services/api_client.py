@@ -37,6 +37,7 @@ from app.services import ai_assistant_service, ai_business_rules
 from app.services.ai_assistant_service import AIQuotaExceeded, recommend_dataset_validated
 from app.services.catalog_service import list_countries, list_indicators, list_sources, list_topics
 from app.services.chart_service import build_export_chronology_png
+from app.services.dashboard_metrics_service import build_dashboard_metrics
 from app.services.publish_service import (
     PublishError,
     check_export_mode as _check_export_mode,
@@ -315,3 +316,8 @@ def get_export_chronology_chart() -> tuple[bytes, str]:
         if png is None:
             raise ApiError("Aucun export.", status_code=404)
         return png, "image/png"
+
+
+def get_dashboard_metrics() -> dict[str, Any]:
+    with _db_session() as db:
+        return build_dashboard_metrics(db)

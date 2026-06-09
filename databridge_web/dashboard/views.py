@@ -690,21 +690,22 @@ def ai_assistant(request):
 
 
 def dashboard(request):
-    datasets, backend_error = _load_datasets()
-    display_datasets = _deduplicate_catalog_datasets(datasets)
-    summary = _build_summary(display_datasets)
-    top_indicators = _top_indicators_from_details(display_datasets[:8]) if display_datasets else []
-    chronology_chart_url = reverse("dashboard:export_chronology_chart") if display_datasets else None
+    backend_error = None
+    try:
+        dashboard_metrics = api_client.get_dashboard_metrics()
+    except (BackendUnavailable, ApiError) as exc:
+        dashboard_metrics = _empty_dashboard_metrics()
+        backend_error = str(exc)
 
     return render(
         request,
         "dashboard.html",
         {
             "active_page": "dashboard",
-            "datasets": display_datasets[:6],
-            "summary": summary,
-            "top_indicators": top_indicators,
-            "chronology_chart_url": chronology_chart_url,
+            "dashboard_metrics": dashboard_metrics,
+            "datasets": dashboard_metrics.get("recent_exports", []),
+            "summary": dashboard_metrics.get("summary", {}),
+            "top_indicators": dashboard_metrics.get("top_indicators", []),
             "backend_error": backend_error,
         },
     )
@@ -1980,6 +1981,38 @@ def _build_summary(datasets: list[dict[str, Any]]) -> dict[str, int]:
         "versions": sum(int(item.get("latest_version") or 0) for item in datasets),
         "countries": len({item.get("country", {}).get("name") for item in datasets if item.get("country")}),
         "indicators": _count_indicators_from_details(datasets[:8]),
+    }
+
+
+def _empty_dashboard_metrics() -> dict[str, Any]:
+    return {
+        "summary": {
+            "datasets": 0,
+            "exports": 0,
+            "countries": 0,
+            "indicators": 0,
+            "sources": 0,
+            "last_export_label": "Aucun export",
+        },
+        "exports_timeline": [],
+        "top_indicators": [],
+        "recent_exports": [],
+        "process_performance": [],
+        "ai_summary": {
+            "provider": "Non disponible",
+            "model": "Non disponible",
+            "calls": 0,
+            "measured": False,
+            "avg_duration_label": "Non mesuré",
+        },
+        "ai_models": [],
+        "opendatasoft": {
+            "mode": "Non disponible",
+            "label": "Non disponible",
+            "description": "Les informations de publication ne sont pas disponibles.",
+            "public_base_url": "",
+        },
+        "warnings": [],
     }
 
 
