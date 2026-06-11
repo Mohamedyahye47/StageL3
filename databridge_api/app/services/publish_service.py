@@ -14,10 +14,9 @@ from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import quote
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 import requests
 from requests.adapters import HTTPAdapter
-from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 from urllib3.util.retry import Retry
@@ -277,7 +276,6 @@ def generate_export_links(db: Session, payload: PublishDatasetIn) -> dict[str, A
         etat="Réussi",
     )
     return result
-
 
 
 def preview_dataset(db: Session, payload: PublishDatasetIn, *, limit: int = 50) -> dict[str, Any]:
