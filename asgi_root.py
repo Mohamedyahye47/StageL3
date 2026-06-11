@@ -36,7 +36,7 @@ class UnifiedASGIApplication:
 
 
 def _is_fastapi_path(path: str) -> bool:
-    return path == "/api" or any(path == prefix or path.startswith(f"{prefix}/") for prefix in FASTAPI_PREFIXES)
+    return any(path == prefix or path.startswith(f"{prefix}/") for prefix in FASTAPI_PREFIXES)
 
 
 application = UnifiedASGIApplication()
