@@ -362,13 +362,12 @@ def _open_turso_connection() -> TursoConnection:
 
     return TursoConnection(_open_raw(), reopen=_open_raw)
 
-WB_SOURCE = {
+WORLD_BANK_SOURCE = {
     "code": "WB",
     "name": "Banque mondiale",
     "base_url": "https://api.worldbank.org/v2",
     "description": "Catalogue metadata des indicateurs de la Banque mondiale pour Richat DataBridge.",
 }
-WORLD_BANK_SOURCE = WB_SOURCE
 
 FALLBACK_COUNTRIES = [
     {"code_iso3": "DZA", "code_iso2": "DZ", "wb_code": "DZA", "name": "Algerie", "region": "Afrique", "enabled": 1},
@@ -447,21 +446,6 @@ def register_source(
         if owns_connection:
             conn.commit()
         return int(row["id"])
-    finally:
-        if owns_connection:
-            conn.close()
-
-
-def get_source_id(source_code: str, *, conn: sqlite3.Connection | None = None) -> int | None:
-    owns_connection = conn is None
-    if conn is None:
-        conn = get_connection()
-    try:
-        row = conn.execute(
-            "SELECT id FROM sources WHERE code = ?",
-            (source_code,),
-        ).fetchone()
-        return int(row["id"]) if row else None
     finally:
         if owns_connection:
             conn.close()
