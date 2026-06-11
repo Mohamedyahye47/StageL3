@@ -38,7 +38,6 @@ def _is_placeholder(value: str | None) -> bool:
 
 APP_ENV = _env_text("APP_ENV", "development").lower()
 IS_PRODUCTION = APP_ENV == "production"
-LOG_LEVEL = _env_text("LOG_LEVEL", "INFO")
 
 
 def _resolve_project_path(value: str | None, default: Path) -> Path:
