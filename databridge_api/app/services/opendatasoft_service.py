@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from urllib.parse import quote
 
 from app.config import (
     ODS_DEFAULT_LICENSE,
@@ -125,11 +125,6 @@ def get_opendatasoft_public_url(dataset_id: str) -> str:
     return f"{ODS_DOMAIN.rstrip('/')}/explore/dataset/{quote(dataset_id)}/"
 
 
-def sanitize_opendatasoft_error(error: Any) -> str:
-    message = str(error) if error else "Erreur OpenDataSoft inconnue."
-    return _redact_secret(message)
-
-
 def _safe_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(payload, ensure_ascii=False, default=str))
 
@@ -168,15 +163,6 @@ def _stable_dataset_id(value: str | None) -> str:
     slug = re.sub(r"[^a-z0-9_-]+", "-", (value or "richat-databridge-dataset").strip().lower())
     slug = re.sub(r"-+", "-", slug).strip("-")
     return slug or "richat-databridge-dataset"
-
-
-def _with_query_params(url: str, **params: str) -> str:
-    if not url:
-        return url
-    parsed = urlparse(url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.update(params)
-    return urlunparse(parsed._replace(query=urlencode(query)))
 
 
 def _first_text(*values: Any) -> str:
