@@ -127,9 +127,6 @@ class NormalizedRequest(BaseModel):
         return self.declared_confidence
 
 
-RequestAnalysis = NormalizedRequest
-
-
 class CountryResolution(BaseModel):
     country_id: int | None = None
     country_code: str | None = None
@@ -233,31 +230,6 @@ class AIQuotaExceeded(RuntimeError):
             "retry_after_seconds": self.retry_after_seconds,
             "fallback_available": self.fallback_available,
         }
-
-
-class QuickAITestResponse(BaseModel):
-    message: str
-
-
-def quick_ai_test() -> str:
-    if AI_PROVIDER == "local":
-        return "Mode local actif : aucun appel IA externe."
-    result = generate_json(
-        layer="recommendation",
-        provider=AI_PROVIDER,
-        model=AI_MODEL,
-        system_prompt="Tu testes la configuration IA de Richat DataBridge.",
-        user_prompt='Retourne {"message": "Le service IA fonctionne."}',
-        schema=QuickAITestResponse,
-        temperature=AI_TEMPERATURE,
-    )
-    return result.message
-
-
-def analyze_user_request(user_request: str) -> RequestAnalysis:
-    if not user_request.strip():
-        raise ValueError("user_request is required")
-    return build_initial_local_analysis(user_request, DEFAULT_COUNTRY_NAME)
 
 
 def normalize_recommended_dates(start_year: int | None, end_year: int | None) -> tuple[str, str]:
@@ -837,7 +809,7 @@ def build_candidate_payload(db: Session, candidates: list[Indicator]) -> list[di
 def recommend_dataset_from_local_candidates(
     *,
     user_request: str,
-    initial_analysis: RequestAnalysis,
+    initial_analysis: NormalizedRequest,
     local_context: dict[str, Any],
     candidates_payload: list[dict[str, Any]],
     max_indicators: int,
@@ -1208,110 +1180,97 @@ def _recommend_dataset_validated_with_ai(
     description = analysis.description
     confidence: Literal["low", "medium", "high"] = analysis.confidence
 
-    should_call_external_ai = True
-    if should_call_external_ai:
-        debut = time.perf_counter()
-        selection = recommend_dataset_from_local_candidates(
-            user_request=user_request,
-            initial_analysis=analysis,
-            local_context=_single_call_local_context(source=source, country=country, candidates_payload=governed.candidate_payload),
-            candidates_payload=governed.candidate_payload,
-            max_indicators=max_recommended_indicators,
+    debut = time.perf_counter()
+    selection = recommend_dataset_from_local_candidates(
+        user_request=user_request,
+        initial_analysis=analysis,
+        local_context=_single_call_local_context(source=source, country=country, candidates_payload=governed.candidate_payload),
+        candidates_payload=governed.candidate_payload,
+        max_indicators=max_recommended_indicators,
+    )
+    nombre_appels_ia += 1
+    etapes["recommandation_ia"] = {
+        "duree_secondes": round(time.perf_counter() - debut, 4),
+        "resultat": f"{len(selection.selected_indicators)} indicateur(s) proposes",
+        "role_ia": "recommandation",
+        "modele": AI_MODEL,
+        "fournisseur": AI_PROVIDER,
+    }
+    selected_source = validate_source(db, selection.source_code)
+    if selected_source is not None:
+        source = selected_source
+    selected_country = db.get(Country, selection.country_id) if selection.country_id else None
+    if selected_country is None:
+        selected_country = validate_country(db, selection.country_name)
+    if selected_country is not None and not country_resolution.explicit_country_mentioned:
+        country = selected_country
+        country_resolution = CountryResolution(
+            country_id=selected_country.id,
+            country_code=selected_country.code_iso3,
+            country_name=selected_country.name,
+            confidence="medium",
+            explicit_country_mentioned=False,
+            used_default_country=False,
         )
-        nombre_appels_ia += 1
-        etapes["recommandation_ia"] = {
-            "duree_secondes": round(time.perf_counter() - debut, 4),
-            "resultat": f"{len(selection.selected_indicators)} indicateur(s) proposes",
-            "role_ia": "recommandation",
-            "modele": AI_MODEL,
-            "fournisseur": AI_PROVIDER,
+    analysis = analysis.model_copy(
+        update={
+            "source_code": source.code if source else selection.source_code,
+            "country_name": country.name if country else selection.country_name,
+            "start_year": selection.start_year,
+            "end_year": selection.end_year,
+            "topic_intent": selection.topic_intent or governed.intent,
+            "title": selection.title,
+            "description": selection.description,
+            "search_keywords": selection.search_keywords or analysis.search_keywords,
+            "ambiguity_level": selection.ambiguity_level,
+            "declared_confidence": selection.confidence,
         }
-        selected_source = validate_source(db, selection.source_code)
-        if selected_source is not None:
-            source = selected_source
-        selected_country = db.get(Country, selection.country_id) if selection.country_id else None
-        if selected_country is None:
-            selected_country = validate_country(db, selection.country_name)
-        if selected_country is not None and not country_resolution.explicit_country_mentioned:
-            country = selected_country
-            country_resolution = CountryResolution(
-                country_id=selected_country.id,
-                country_code=selected_country.code_iso3,
-                country_name=selected_country.name,
-                confidence="medium",
-                explicit_country_mentioned=False,
-                used_default_country=False,
-            )
-        analysis = analysis.model_copy(
-            update={
-                "source_code": source.code if source else selection.source_code,
-                "country_name": country.name if country else selection.country_name,
-                "start_year": selection.start_year,
-                "end_year": selection.end_year,
-                "topic_intent": selection.topic_intent or governed.intent,
-                "title": selection.title,
-                "description": selection.description,
-                "search_keywords": selection.search_keywords or analysis.search_keywords,
-                "ambiguity_level": selection.ambiguity_level,
-                "declared_confidence": selection.confidence,
-            }
-        )
-        selection_items = list(selection.selected_indicators)
-        title = selection.title or analysis.title
-        description = selection.description or analysis.description
-        confidence = selection.confidence or analysis.confidence
+    )
+    selection_items = list(selection.selected_indicators)
+    title = selection.title or analysis.title
+    description = selection.description or analysis.description
+    confidence = selection.confidence or analysis.confidence
 
-        seen_selected_ids: set[int] = set()
-        for item in selection.selected_indicators:
-            item_id = item.resolved_id()
-            indicator = candidate_by_id.get(item_id or -1)
-            if indicator is None:
-                invalides.append(
-                    {
-                        "id": item_id,
-                        "code": None,
-                        "raison": "Identifiant absent de la liste candidate envoyee au modele.",
-                    }
-                )
-                continue
-            if indicator.id in seen_selected_ids:
-                non_retenus.append(
-                    {
-                        "id": indicator.id,
-                        "code": indicator.code,
-                        "nom": indicator.name,
-                        "raison": "Doublon supprime par le serveur.",
-                    }
-                )
-                continue
-            seen_selected_ids.add(indicator.id)
-            selected_models.append(indicator)
-            reason_by_id[indicator.id] = item.reason
-            if len(selected_models) >= max_recommended_indicators:
-                break
-
-        for item in selection.not_selected:
-            item_id = item.resolved_id()
-            indicator = candidate_by_id.get(item_id or -1)
-            non_retenus.append(
+    seen_selected_ids: set[int] = set()
+    for item in selection.selected_indicators:
+        item_id = item.resolved_id()
+        indicator = candidate_by_id.get(item_id or -1)
+        if indicator is None:
+            invalides.append(
                 {
                     "id": item_id,
-                    "code": indicator.code if indicator else None,
-                    "nom": indicator.name if indicator else None,
-                    "raison": item.reason,
+                    "code": None,
+                    "raison": "Identifiant absent de la liste candidate envoyee au modele.",
                 }
             )
-    else:
-        description = (
-            analysis.description
-            + " Aucun indicateur local suffisamment pertinent n'a ete trouve dans le catalogue."
+            continue
+        if indicator.id in seen_selected_ids:
+            non_retenus.append(
+                {
+                    "id": indicator.id,
+                    "code": indicator.code,
+                    "nom": indicator.name,
+                    "raison": "Doublon supprime par le serveur.",
+                }
+            )
+            continue
+        seen_selected_ids.add(indicator.id)
+        selected_models.append(indicator)
+        reason_by_id[indicator.id] = item.reason
+        if len(selected_models) >= max_recommended_indicators:
+            break
+
+    for item in selection.not_selected:
+        item_id = item.resolved_id()
+        indicator = candidate_by_id.get(item_id or -1)
+        non_retenus.append(
+            {
+                "id": item_id,
+                "code": indicator.code if indicator else None,
+                "nom": indicator.name if indicator else None,
+                "raison": item.reason,
+            }
         )
-        confidence = "low"
-        etapes["recommandation_ia"] = {
-            "duree_secondes": 0,
-            "resultat": "Aucun candidat envoye au modele",
-            "role_ia": "aucun_appel_ia",
-        }
 
     _ensure_required_indicators(
         selected_models=selected_models,
@@ -1500,14 +1459,6 @@ def _recommend_dataset_validated_with_ai(
         },
     )
     return recommendation
-
-
-def _chain_provider_summary(*, include_details: bool = False) -> str:
-    return AI_PROVIDER
-
-
-def _chain_model_summary(*, include_details: bool = False) -> str:
-    return AI_MODEL
 
 
 def recommend_dataset_local(
