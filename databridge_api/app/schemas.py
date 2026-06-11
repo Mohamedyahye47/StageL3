@@ -181,18 +181,6 @@ class ExportDatasetDetailOut(BaseModel):
     opendatasoft_last_result: dict[str, Any] | None = None
 
 
-class ExportLogOut(BaseModel):
-    id: int
-    export_dataset_id: int | None = None
-    action: str
-    row_count: int | None = None
-    non_null_value_count: int | None = None
-    status: str
-    error_message: str | None = None
-    duration_seconds: float | None = None
-    created_at: str
-
-
 class OpenDataSoftMetadataOut(BaseModel):
     slug: str
     opendatasoft_metadata: dict[str, Any]
