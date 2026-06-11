@@ -24,7 +24,6 @@ from app.schemas import (
     ExportDatasetDataPreviewOut,
     ExportDatasetDetailOut,
     ExportDatasetListOut,
-    ExportDatasetVersionOut,
     ExportLinksOut,
     IndicatorOut,
     OpenDataSoftMetadataOut,
@@ -47,7 +46,6 @@ from app.services.publish_service import (
     get_dataset_detail as _get_dataset_detail,
     get_dataset_version_data_preview,
     get_opendatasoft_metadata as _get_opendatasoft_metadata,
-    list_dataset_versions,
     prepare_dataset_for_opendatasoft,
     preview_dataset as _preview_dataset,
 )
@@ -181,14 +179,6 @@ def prepare_opendatasoft(slug: str) -> dict[str, Any]:
             raise _handle_publish_error(exc) from exc
 
 
-def get_dataset_versions(slug: str) -> list[dict[str, Any]]:
-    with _db_session() as db:
-        versions = list_dataset_versions(db, slug)
-        if not versions:
-            raise ApiError(f"Dataset '{slug}' introuvable.", status_code=404)
-        return _dump_many(ExportDatasetVersionOut, versions)
-
-
 def get_dataset_preview(slug: str, version: int, *, limit: int = 25) -> dict[str, Any]:
     with _db_session() as db:
         try:
@@ -198,19 +188,6 @@ def get_dataset_preview(slug: str, version: int, *, limit: int = 25) -> dict[str
         if preview is None:
             raise ApiError(f"Version '{version}' introuvable pour '{slug}'.", status_code=404)
         return ExportDatasetDataPreviewOut.model_validate(preview).model_dump(mode="json")
-
-
-def get_export_health() -> dict[str, Any]:
-    return {
-        "ok": True,
-        "provider": app_config.REMOTE_PROVIDER,
-        "export_mode": app_config.PUBLISH_MODE,
-        "public_api_base_url": app_config.PUBLIC_API_BASE_URL,
-        "is_local_url": app_config.export_api_is_local(),
-        "opendatasoft_link_mode": True,
-        "source_limits": app_config.SOURCE_LIMITS,
-        "message": "Service d'export disponible.",
-    }
 
 
 def get_ai_dataset_recommendation(user_request: str, *, local_only: bool = False) -> dict:
