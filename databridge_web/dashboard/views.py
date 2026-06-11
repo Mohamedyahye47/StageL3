@@ -463,7 +463,6 @@ def _normalise_export_links(links: dict[str, Any] | None) -> dict[str, Any] | No
     return cleaned
 
 
-
 def _polish_french_text(value: str | None) -> str:
     text = value or ""
     replacements = {
@@ -681,7 +680,6 @@ def ai_assistant(request):
             "quota_error": bool(error and "Quota IA atteint" in error),
         },
     )
-
 
 
 def dashboard(request):
@@ -989,7 +987,6 @@ def dataset_create(request):
 
         elif action == "regenerate_links":
             messages.error(request, "La regénération des liens n'est pas disponible depuis l'interface.")
-
 
     selected_indicator_ids_set = {str(value) for value in posted_indicator_ids}
     indicator_limit_exceeded = (
@@ -1966,8 +1963,6 @@ def _build_export_payload(cleaned: dict[str, Any]) -> dict[str, Any]:
         "existing_slug": cleaned["existing_slug"] if cleaned["mode"] == "version" else None,
         "format": "csv",
     }
-
-
 
 
 def _empty_dashboard_metrics() -> dict[str, Any]:
