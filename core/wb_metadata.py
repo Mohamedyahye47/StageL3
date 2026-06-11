@@ -185,15 +185,6 @@ PREFIX_TOPIC_RULES: tuple[tuple[str, str], ...] = (
     ("GD.WBL", "genre"),
     ("PA.NUS", "economie_croissance"),
 )
-PRIORITY_TOPIC_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("SP.POP", "SP.URB", "SP.RUR"), "population_demographie"),
-    (("SL.UEM",), "main_oeuvre"),
-    (("FP.CPI",), "secteur_financier"),
-    (("NY.GDP",), "economie_croissance"),
-    (("SH_UHC", "SH.UHC"), "sante"),
-)
-
-
 # ---------------------------------------------------------------------------
 # Règles de complétion DataBridge pour les indicateurs SANS thème officiel WB.
 # Versionnées dans le code (aucune lecture de rapport_final.json pendant l'ETL).
@@ -206,15 +197,7 @@ PRIORITY_TOPIC_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 # ---------------------------------------------------------------------------
 A_CLASSER_ID = SYSTEM_TOPICS["a_classer"][0]  # 900000
 
-# ---------------------------------------------------------------------------
-# Mode final choisi : build LOCAL SQLite puis import manuel vers une nouvelle
-# base Turso. Le long ETL World Bank ne doit plus écrire dans Turso.
-# INDICATOR_TOPICS_TABLE reste donc la table de production locale. Les anciens
-# helpers rebuild sont conservés comme fonctions internes, mais ils ne sont plus
-# utilisés par sync_world_bank_metadata().
-# ---------------------------------------------------------------------------
 PRODUCTION_RELATIONS_TABLE = "indicator_topics"
-REBUILD_TABLE = "indicator_topics_rebuild"
 INDICATOR_TOPICS_TABLE = PRODUCTION_RELATIONS_TABLE
 
 # Cas sensibles -> toujours manual_review. Vérifiés EN PREMIER (ordre important).
@@ -414,86 +397,6 @@ class MetadataTranslator:
 
 def _chunked(items: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]]]:
     return [items[index : index + size] for index in range(0, len(items), size)]
-
-
-def _create_rebuild_table(conn) -> None:
-    """Crée une table rebuild vide, même schéma que indicator_topics.
-    On repart toujours d'une table propre (le run reconstruit tout)."""
-    conn.execute(f"DROP TABLE IF EXISTS {REBUILD_TABLE}")
-    conn.execute(
-        f"""
-        CREATE TABLE {REBUILD_TABLE} (
-            indicator_id  INTEGER NOT NULL,
-            topic_id      INTEGER NOT NULL,
-            origin        TEXT NOT NULL DEFAULT 'official_world_bank',
-            review_status TEXT NOT NULL DEFAULT 'none',
-            PRIMARY KEY (indicator_id, topic_id)
-        )
-        """
-    )
-
-
-def _run_rebuild_checks(conn, source_id: int) -> tuple[bool, list[str]]:
-    """Contrôles AVANT swap. Retourne (ok, messages). Si ok est False, on ne
-    touche surtout pas à la table de production."""
-    messages: list[str] = []
-
-    total = conn.execute(f"SELECT COUNT(*) FROM {REBUILD_TABLE}").fetchone()[0]
-    sans_theme = conn.execute(
-        f"""
-        SELECT COUNT(*) FROM indicators i
-        LEFT JOIN {REBUILD_TABLE} it ON it.indicator_id = i.id
-        WHERE i.source_id = ? AND it.indicator_id IS NULL
-        """,
-        (source_id,),
-    ).fetchone()[0]
-    by_origin = {
-        row["origin"]: row["n"]
-        for row in conn.execute(
-            f"SELECT origin, COUNT(*) AS n FROM {REBUILD_TABLE} GROUP BY origin"
-        ).fetchall()
-    }
-    manual = conn.execute(
-        f"SELECT COUNT(*) FROM {REBUILD_TABLE} WHERE review_status = 'manual_review'"
-    ).fetchone()[0]
-
-    n_official = by_origin.get("official_world_bank", 0)
-    n_databridge = by_origin.get("databridge_prefix_rule", 0)
-
-    messages.append(f"relations totales        : {total}")
-    messages.append(f"indicateurs sans theme   : {sans_theme}")
-    messages.append(f"official_world_bank      : {n_official}")
-    messages.append(f"databridge_prefix_rule   : {n_databridge}")
-    messages.append(f"manual_review            : {manual}")
-
-    ok = True
-    if total <= 0:
-        ok = False; messages.append("ECHEC: aucune relation reconstruite.")
-    if sans_theme != 0:
-        ok = False; messages.append(f"ECHEC: {sans_theme} indicateur(s) sans theme.")
-    if n_official <= 0:
-        ok = False; messages.append("ECHEC: aucune relation official_world_bank.")
-    if n_databridge <= 0:
-        ok = False; messages.append("ECHEC: aucune relation databridge_prefix_rule.")
-    if manual <= 0:
-        # avertissement non bloquant : selon le payload WB il pourrait n'y avoir
-        # aucun cas sensible, mais on le signale car c'est inhabituel.
-        messages.append("AVERTISSEMENT: aucun manual_review (verifie si attendu).")
-
-    return ok, messages
-
-
-def _swap_rebuild_into_place(conn) -> None:
-    """Swap final atomique : ne s'exécute qu'après des contrôles réussis.
-    DELETE + INSERT ... SELECT, deux instructions, un seul commit."""
-    conn.execute("DELETE FROM indicator_topics")
-    conn.execute(
-        f"""
-        INSERT INTO indicator_topics (indicator_id, topic_id, origin, review_status)
-        SELECT indicator_id, topic_id, origin, review_status FROM {REBUILD_TABLE}
-        """
-    )
-    conn.commit()
 
 
 def _run_local_relations_checks(conn, source_id: int) -> tuple[bool, list[str]]:
@@ -1085,11 +988,6 @@ def _ensure_system_topic(topic_key: str, *, source_id: int, conn) -> int:
     return topic_id
 
 
-def _ensure_all_system_topics(*, source_id: int, conn) -> None:
-    for topic_key in SYSTEM_TOPICS:
-        _ensure_system_topic(topic_key, source_id=source_id, conn=conn)
-
-
 def normalize_for_classification(value: str | None) -> str:
     import unicodedata
 
@@ -1350,15 +1248,8 @@ def _resume_appels_banque_mondiale(api_calls: list[dict[str, Any]]) -> list[dict
 
 def validate_metadata_quality(*, conn, source_id: int, timing: MetadataSyncTiming | None = None) -> dict[str, Any]:
     started = time.perf_counter()
-    # _ensure_all_system_topics : désactivé. Créait les 19 thèmes système même
-    # inutilisés (thèmes vides qui gonflent le catalogue). La création se fait
-    # désormais à la demande via _ensure_system_topic uniquement quand nécessaire.
     _repair_visible_texts(conn=conn, source_id=source_id)
     _repair_missing_indicator_topics(conn=conn, source_id=source_id)
-    # _enforce_priority_indicator_topics : désactivé. Ajoutait des thèmes système
-    # aux indicateurs DÉJÀ classés officiellement (mélange officiel/DataBridge et
-    # gonflement des relations). La complétion traçable de
-    # _repair_missing_indicator_topics couvre proprement les indicateurs sans thème.
     _remove_resolved_a_classer_links(conn=conn, source_id=source_id)
     _merge_duplicate_topics(conn=conn, source_id=source_id)
     conn.commit()
@@ -1456,29 +1347,6 @@ def _repair_missing_indicator_topics(*, conn, source_id: int) -> None:
                 _CURRENT_QUALITY.indicateurs_a_classer.append(code)
 
 
-def _enforce_priority_indicator_topics(*, conn, source_id: int) -> None:
-    rows = conn.execute(
-        """
-        SELECT id, code, name, description
-        FROM indicators
-        WHERE source_id = ?
-        """,
-        (source_id,),
-    ).fetchall()
-    for row in rows:
-        topic_key = _priority_topic_key_for_indicator(_clean_text(row["code"]))
-        if topic_key is None:
-            continue
-        topic_id = _ensure_system_topic(topic_key, source_id=source_id, conn=conn)
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO indicator_topics (indicator_id, topic_id)
-            VALUES (?, ?)
-            """,
-            (row["id"], topic_id),
-        )
-
-
 def _remove_resolved_a_classer_links(*, conn, source_id: int) -> None:
     a_classer_id = SYSTEM_TOPICS["a_classer"][0]
     conn.execute(
@@ -1499,11 +1367,6 @@ def _remove_resolved_a_classer_links(*, conn, source_id: int) -> None:
 
 
 def _merge_duplicate_topics(*, conn, source_id: int) -> None:
-    # Pendant un rebuild isolé, on ne mute pas la table 'topics' (un run qui
-    # échouerait laisserait sinon 'topics' modifiée alors que indicator_topics
-    # de production est préservée). La fusion reste disponible hors rebuild.
-    if INDICATOR_TOPICS_TABLE != PRODUCTION_RELATIONS_TABLE:
-        return
     rows = conn.execute(
         "SELECT id, name FROM topics WHERE source_id = ? ORDER BY id",
         (source_id,),
@@ -1542,14 +1405,6 @@ def _normalize_topic_name_for_dedup(value: str | None) -> str:
     text = normalize_for_classification(value)
     text = text.replace("œ", "oe").replace("’", "'").replace("`", "'")
     return re.sub(r"[^a-z0-9]+", "", text)
-
-
-def _priority_topic_key_for_indicator(code: str) -> str | None:
-    clean_code = (code or "").upper()
-    for prefixes, topic_key in PRIORITY_TOPIC_RULES:
-        if any(clean_code.startswith(prefix) for prefix in prefixes):
-            return topic_key
-    return None
 
 
 def _build_metadata_quality_report(*, conn, source_id: int) -> dict[str, Any]:
