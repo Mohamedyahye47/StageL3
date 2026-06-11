@@ -177,7 +177,6 @@ def _build_catalog_metadata(db: Any, etl_events: list[dict[str, Any]]) -> dict[s
     }
 
 
-
 def _build_exports_timeline(db: Any) -> list[dict[str, Any]]:
     source = "export_logs"
     rows = _rows(
@@ -516,7 +515,6 @@ def _latest_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     return events[0]
 
 
-
 def _duration_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     values = []
     for event in events:
@@ -669,9 +667,8 @@ def _parse_date(value: Any) -> datetime | None:
 def _status_label(value: Any) -> str:
     status = str(value or "").strip().lower()
     return {
+        "export_links_ready": "Liens générés",
         "success": "Succès",
-        "published": "Publié",
-        "draft": "Brouillon",
         "refused": "Refusé",
         "error": "Erreur",
     }.get(status, status.capitalize() if status else "État non renseigné")
@@ -679,10 +676,8 @@ def _status_label(value: Any) -> str:
 
 def _status_class(value: Any) -> str:
     status = str(value or "").strip().lower()
-    if status in {"success", "published"}:
+    if status in {"success", "export_links_ready"}:
         return "success"
     if status in {"refused", "error"}:
         return "danger"
-    if status in {"draft", "pending"}:
-        return "warning"
     return "neutral"
