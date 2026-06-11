@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import fnmatch
-import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
