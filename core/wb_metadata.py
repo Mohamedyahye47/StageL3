@@ -167,24 +167,6 @@ SYSTEM_TOPICS: dict[str, tuple[int, str, str]] = {
         "Genre, droits des femmes et égalité.",
     ),
 }
-PREFIX_TOPIC_RULES: tuple[tuple[str, str], ...] = (
-    ("SL.", "main_oeuvre"),
-    ("SE.", "education"),
-    ("SH.", "sante"),
-    ("SH_", "sante"),
-    ("NY.", "economie_croissance"),
-    ("DT.", "dette_exterieure"),
-    ("DC.", "efficacite_aide"),
-    ("EN.", "environnement"),
-    ("EG.", "energie_mines"),
-    ("AG.", "agriculture"),
-    ("IC.", "secteur_prive"),
-    ("GC.", "secteur_public"),
-    ("SI.", "pauvrete"),
-    ("SM.", "developpement_social"),
-    ("GD.WBL", "genre"),
-    ("PA.NUS", "economie_croissance"),
-)
 # ---------------------------------------------------------------------------
 # Règles de complétion DataBridge pour les indicateurs SANS thème officiel WB.
 # Versionnées dans le code (aucune lecture de rapport_final.json pendant l'ETL).
@@ -875,82 +857,6 @@ def _extract_topic_ids(
     return sorted(set(topic_ids))
 
 
-def _classify_indicator_topic_id(
-    *,
-    code: str,
-    name: str,
-    description: str,
-    source_id: int,
-    translator: MetadataTranslator,
-    conn,
-) -> int:
-    text = normalize_for_classification(" ".join([code, name, description]))
-    topic_key = _topic_key_from_prefix(code, text) or _topic_key_from_keywords(text) or "a_classer"
-    topic_id = _ensure_system_topic(topic_key, source_id=source_id, conn=conn)
-    if _CURRENT_QUALITY is not None:
-        _CURRENT_QUALITY.themes_fallback += 1
-        if topic_key == "a_classer":
-            _CURRENT_QUALITY.indicateurs_a_classer.append(code)
-    return topic_id
-
-
-def _topic_key_from_prefix(code: str, text: str) -> str | None:
-    clean_code = (code or "").upper()
-    if clean_code.startswith("SP.POP") or any(term in text for term in ("population", "habitants", "demographie")):
-        return "population_demographie"
-    if clean_code.startswith("SP.") and any(term in text for term in ("emploi", "chomage", "protection sociale", "labor")):
-        return "main_oeuvre"
-    if clean_code.startswith("SP."):
-        return "sante"
-    if clean_code.startswith(("BN.", "BX.", "BM.")):
-        if any(term in text for term in ("export", "import", "commerce", "trade", "services")):
-            return "commerce"
-        return "balance_paiements"
-    if clean_code.startswith("NE."):
-        if any(term in text for term in ("export", "import", "commerce", "trade")):
-            return "commerce"
-        return "economie_croissance"
-    if clean_code.startswith("FP."):
-        return "secteur_financier"
-    if clean_code.startswith("HD.HCI") or clean_code.startswith("HD_HCIP"):
-        if any(term in text for term in ("education", "apprentissage", "school")):
-            return "education"
-        if any(term in text for term in ("sante", "health", "survie")):
-            return "sante"
-        return "main_oeuvre"
-
-    for prefix, topic_key in PREFIX_TOPIC_RULES:
-        if clean_code.startswith(prefix):
-            return topic_key
-    return None
-
-
-def _topic_key_from_keywords(text: str) -> str | None:
-    keyword_rules: tuple[tuple[str, tuple[str, ...]], ...] = (
-        ("main_oeuvre", ("chomage", "emploi", "travail", "unemployment", "labor")),
-        ("population_demographie", ("population", "demographie", "habitants", "individus")),
-        ("secteur_financier", ("inflation", "prix a la consommation", "indice des prix", "cpi")),
-        ("economie_croissance", ("pib", "gdp", "croissance", "revenu national", "gross domestic")),
-        ("efficacite_aide", ("aide", "donateurs", "apd", "oda", "nations unies", "cad", "dac")),
-        ("dette_exterieure", ("dette", "debt")),
-        ("secteur_prive", ("entreprise", "b-ready", "business", "reglementation des entreprises")),
-        ("genre", ("wbl", "femmes", "genre", "legal", "parite")),
-        ("education", ("education", "apprentissage", "scolarisation", "school")),
-        ("sante", ("sante", "maladie", "couverture sante", "health", "life expectancy")),
-        ("developpement_social", ("refugies", "asile", "deplaces", "migration", "refugee")),
-        ("pauvrete", ("pauvrete", "poverty")),
-        ("energie_mines", ("energie", "electricite", "mines")),
-        ("environnement", ("emissions", "co2", "climat", "environnement")),
-        ("agriculture", ("agriculture", "engrais", "terres agricoles", "rural")),
-        ("commerce", ("exportations", "importations", "commerce", "trade")),
-        ("balance_paiements", ("balance des paiements", "compte courant", "transferts", "investissements directs")),
-    )
-    for topic_key, keywords in keyword_rules:
-        if any(keyword in text for keyword in keywords):
-            return topic_key
-    return None
-
-
 def _ensure_system_topic(topic_key: str, *, source_id: int, conn) -> int:
     topic_id, name, description = SYSTEM_TOPICS.get(topic_key, SYSTEM_TOPICS["a_classer"])
     existing = conn.execute(
@@ -1530,31 +1436,6 @@ def _print_quality_report(report: dict[str, Any]) -> None:
 def _count_scalar(conn, query: str, params: tuple[Any, ...] = ()) -> int:
     row = conn.execute(query, params).fetchone()
     return int(row[0] if row else 0)
-
-
-def contains_mojibake(text: str) -> bool:
-    return _contains_mojibake(_clean_text(text))
-
-
-def safe_text(value: Any, fallback: str, field_name: str, code: str) -> str:
-    clean = _clean_text(value)
-    if clean and not contains_mojibake(clean):
-        return clean
-    if _CURRENT_QUALITY is not None:
-        _CURRENT_QUALITY.champs_vides_corriges += 1
-    return _clean_text(fallback) or f"Indicateur World Bank {code}"
-
-
-def translate_or_fallback(text: str, target_lang: str = "fr") -> str:
-    translator = MetadataTranslator(enabled=(target_lang == "fr" and GoogleTranslator is not None))
-    return translator.translate(text) or _clean_text(text)
-
-
-def choose_best_text(*values: str, fallback: str, field_name: str = "name", code: str = "") -> str:
-    clean_values = [_clean_text(value) for value in values if _clean_text(value)]
-    if clean_values:
-        return clean_values[0]
-    return safe_text("", fallback, field_name, code)
 
 
 def _resolve_french_text(source_text: str, official_text: str, translator: MetadataTranslator) -> str:
