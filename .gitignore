@@ -33,3 +33,7 @@ staticfiles/
 media/
 .DS_Store
 Thumbs.db
+
+# Patch snapshots and working notes
+_patchA*/
+prompt.txt
