@@ -256,10 +256,6 @@ def superuser_management(request):
     )
 
 
-def healthz(request):
-    return JsonResponse({"ok": True})
-
-
 def export_chronology_chart(request):
     try:
         content, content_type = api_client.get_export_chronology_chart()
@@ -1141,7 +1137,6 @@ def dataset_detail(request, slug: str):
             "csv_url": csv_url,
         }
 
-    preview = None
     preview_columns: list[str] = []
     preview_rows: list[list[Any]] = []
     preview_error = None
@@ -1161,7 +1156,6 @@ def dataset_detail(request, slug: str):
             "csv_view_url": csv_view_url,
             "json_url": json_url,
             "export_is_local": _is_local_export_url(csv_url),
-            "preview": preview,
             "preview_columns": preview_columns,
             "preview_rows": preview_rows,
             "preview_error": preview_error,
@@ -2035,8 +2029,6 @@ def _manifest_value(manifest: dict[str, Any], *keys: str, default=None):
 
 
 def _pretty_manifest(manifest: dict[str, Any]) -> str:
-    import json
-
     return json.dumps(manifest or {}, ensure_ascii=False, indent=2)
 
 

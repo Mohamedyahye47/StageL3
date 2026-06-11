@@ -13,7 +13,6 @@ urlpatterns = [
     path("accounts/logout/", views.logout_view, name="logout"),
     path("setup/first-admin/", views.first_admin_setup, name="first_admin_setup"),
     path("settings/users/", views.superuser_management, name="superuser_management"),
-    path("healthz/", views.healthz, name="healthz"),
     path("charts/export-chronology.png", views.export_chronology_chart, name="export_chronology_chart"),
     path("", views.dashboard, name="dashboard"),
     path("dashboard/", views.dashboard, name="dashboard_alias"),
