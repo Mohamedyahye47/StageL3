@@ -6,7 +6,6 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from statistics import mean
 from typing import Any
 
 
@@ -21,14 +20,6 @@ MEASURE_FILES = {
     "tests_ia": "ia_tests.jsonl",
     "wb_metadata_quality": "wb_metadata_quality.jsonl",
 }
-
-
-def demarrer_mesure() -> float:
-    return time.perf_counter()
-
-
-def terminer_mesure(debut: float) -> float:
-    return round(time.perf_counter() - debut, 4)
 
 
 def enregistrer_mesure(categorie: str, evenement: dict[str, Any]) -> Path:
@@ -58,22 +49,6 @@ def lire_dernieres_mesures(categorie: str, limite: int = 50) -> list[dict[str, A
         except ValueError:
             continue
     return evenements
-
-
-def calculer_resume(evenements: list[dict[str, Any]], champ: str = "duree_totale_secondes") -> dict[str, Any]:
-    valeurs = [
-        float(evenement.get(champ))
-        for evenement in evenements
-        if evenement.get(champ) not in (None, "")
-    ]
-    if not valeurs:
-        return {"nombre": 0, "moyenne": None, "minimum": None, "maximum": None}
-    return {
-        "nombre": len(valeurs),
-        "moyenne": round(mean(valeurs), 4),
-        "minimum": round(min(valeurs), 4),
-        "maximum": round(max(valeurs), 4),
-    }
 
 
 def _nettoyer(value: Any) -> Any:
