@@ -194,6 +194,76 @@ PRIORITY_TOPIC_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Règles de complétion DataBridge pour les indicateurs SANS thème officiel WB.
+# Versionnées dans le code (aucune lecture de rapport_final.json pendant l'ETL).
+# Elles pointent vers des thèmes OFFICIELS World Bank (id 1-21), mais la relation
+# produite est marquée origin='databridge_prefix_rule' : ce n'est JAMAIS une
+# relation officielle World Bank.
+#   2=Aid Effectiveness 3=Economy&Growth 4=Education 8=Health
+#   10=Social Protection&Labor 11=Poverty 12=Private Sector
+#   15=Social Development 17=Gender
+# ---------------------------------------------------------------------------
+A_CLASSER_ID = SYSTEM_TOPICS["a_classer"][0]  # 900000
+
+# ---------------------------------------------------------------------------
+# Mode final choisi : build LOCAL SQLite puis import manuel vers une nouvelle
+# base Turso. Le long ETL World Bank ne doit plus écrire dans Turso.
+# INDICATOR_TOPICS_TABLE reste donc la table de production locale. Les anciens
+# helpers rebuild sont conservés comme fonctions internes, mais ils ne sont plus
+# utilisés par sync_world_bank_metadata().
+# ---------------------------------------------------------------------------
+PRODUCTION_RELATIONS_TABLE = "indicator_topics"
+REBUILD_TABLE = "indicator_topics_rebuild"
+INDICATOR_TOPICS_TABLE = PRODUCTION_RELATIONS_TABLE
+
+# Cas sensibles -> toujours manual_review. Vérifiés EN PREMIER (ordre important).
+DATABRIDGE_SENSITIVE_RULES: tuple[tuple[str, int, str], ...] = (
+    ("HD_HCIP_OVRL_TO", A_CLASSER_ID, "manual_review"),  # indice TOTAL : pas de thème sûr
+    ("HD_HCIP_OVRL_FE",            17, "manual_review"),  # Gender plausible, à confirmer
+    ("HD_HCIP_OVRL_MA",            17, "manual_review"),
+    ("IC.FRM.CO2",                 12, "manual_review"),  # firme mais contenu Environnement
+    ("IC.FRM.ENGM",                12, "manual_review"),  # firme mais contenu Énergie
+    ("DT.NFL",                      2, "manual_review"),  # net official flows = aide, pas dette
+    ("IC.FRM",                     12, "manual_review"),  # firmes : Private Sector probable
+)
+
+# Cas solides -> review_status='none'. Préfixes longs avant préfixes courts.
+DATABRIDGE_PREFIX_RULES_COMPLETION: tuple[tuple[str, int, str], ...] = (
+    ("HD_HCIP_EDUC",  4, "none"),
+    ("HD_HCIP_HLTH",  8, "none"),
+    ("HD_HCIP_OTJL", 10, "none"),
+    ("SH_UHC",        8, "none"),
+    ("GD_WBL",       17, "none"),
+    ("SM.POP",       15, "none"),
+    ("SI.POV",       11, "none"),
+    ("SI.SPR",       11, "none"),
+    ("DC.DAC",        2, "none"),
+    ("IC.BRE",       12, "none"),
+    ("IC.CUS",       12, "none"),
+    ("IC.MNG",       12, "none"),
+    ("SE.",           4, "none"),
+    ("SH_",           8, "none"),
+    ("SH.",           8, "none"),
+    ("NE.",           3, "none"),
+    ("PA.",           3, "none"),
+)
+
+
+def _databridge_complement_for_code(code: str) -> tuple[int | None, str]:
+    """Retourne (topic_id_officiel, review_status) pour un indicateur SANS thème
+    officiel, ou (None, 'none') si aucune règle ne s'applique. topic_id peut être
+    A_CLASSER_ID (900000) pour un cas à vérifier sans thème sûr."""
+    up = (code or "").upper()
+    for prefix, topic_id, status in DATABRIDGE_SENSITIVE_RULES:
+        if up.startswith(prefix.upper()):
+            return topic_id, status
+    for prefix, topic_id, status in DATABRIDGE_PREFIX_RULES_COMPLETION:
+        if up.startswith(prefix.upper()):
+            return topic_id, status
+    return None, "none"
+
+
 @dataclass(slots=True)
 class MetadataQualityTracker:
     fallbacks_anglais: int = 0
@@ -346,13 +416,148 @@ def _chunked(items: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]
     return [items[index : index + size] for index in range(0, len(items), size)]
 
 
-def sync_world_bank_metadata(force: bool = False, limit: int | None = None) -> dict[str, Any]:
+def _create_rebuild_table(conn) -> None:
+    """Crée une table rebuild vide, même schéma que indicator_topics.
+    On repart toujours d'une table propre (le run reconstruit tout)."""
+    conn.execute(f"DROP TABLE IF EXISTS {REBUILD_TABLE}")
+    conn.execute(
+        f"""
+        CREATE TABLE {REBUILD_TABLE} (
+            indicator_id  INTEGER NOT NULL,
+            topic_id      INTEGER NOT NULL,
+            origin        TEXT NOT NULL DEFAULT 'official_world_bank',
+            review_status TEXT NOT NULL DEFAULT 'none',
+            PRIMARY KEY (indicator_id, topic_id)
+        )
+        """
+    )
+
+
+def _run_rebuild_checks(conn, source_id: int) -> tuple[bool, list[str]]:
+    """Contrôles AVANT swap. Retourne (ok, messages). Si ok est False, on ne
+    touche surtout pas à la table de production."""
+    messages: list[str] = []
+
+    total = conn.execute(f"SELECT COUNT(*) FROM {REBUILD_TABLE}").fetchone()[0]
+    sans_theme = conn.execute(
+        f"""
+        SELECT COUNT(*) FROM indicators i
+        LEFT JOIN {REBUILD_TABLE} it ON it.indicator_id = i.id
+        WHERE i.source_id = ? AND it.indicator_id IS NULL
+        """,
+        (source_id,),
+    ).fetchone()[0]
+    by_origin = {
+        row["origin"]: row["n"]
+        for row in conn.execute(
+            f"SELECT origin, COUNT(*) AS n FROM {REBUILD_TABLE} GROUP BY origin"
+        ).fetchall()
+    }
+    manual = conn.execute(
+        f"SELECT COUNT(*) FROM {REBUILD_TABLE} WHERE review_status = 'manual_review'"
+    ).fetchone()[0]
+
+    n_official = by_origin.get("official_world_bank", 0)
+    n_databridge = by_origin.get("databridge_prefix_rule", 0)
+
+    messages.append(f"relations totales        : {total}")
+    messages.append(f"indicateurs sans theme   : {sans_theme}")
+    messages.append(f"official_world_bank      : {n_official}")
+    messages.append(f"databridge_prefix_rule   : {n_databridge}")
+    messages.append(f"manual_review            : {manual}")
+
+    ok = True
+    if total <= 0:
+        ok = False; messages.append("ECHEC: aucune relation reconstruite.")
+    if sans_theme != 0:
+        ok = False; messages.append(f"ECHEC: {sans_theme} indicateur(s) sans theme.")
+    if n_official <= 0:
+        ok = False; messages.append("ECHEC: aucune relation official_world_bank.")
+    if n_databridge <= 0:
+        ok = False; messages.append("ECHEC: aucune relation databridge_prefix_rule.")
+    if manual <= 0:
+        # avertissement non bloquant : selon le payload WB il pourrait n'y avoir
+        # aucun cas sensible, mais on le signale car c'est inhabituel.
+        messages.append("AVERTISSEMENT: aucun manual_review (verifie si attendu).")
+
+    return ok, messages
+
+
+def _swap_rebuild_into_place(conn) -> None:
+    """Swap final atomique : ne s'exécute qu'après des contrôles réussis.
+    DELETE + INSERT ... SELECT, deux instructions, un seul commit."""
+    conn.execute("DELETE FROM indicator_topics")
+    conn.execute(
+        f"""
+        INSERT INTO indicator_topics (indicator_id, topic_id, origin, review_status)
+        SELECT indicator_id, topic_id, origin, review_status FROM {REBUILD_TABLE}
+        """
+    )
+    conn.commit()
+
+
+def _run_local_relations_checks(conn, source_id: int) -> tuple[bool, list[str]]:
+    """Contrôles de validation du fichier SQLite local avant import Turso."""
+    table = PRODUCTION_RELATIONS_TABLE
+    messages: list[str] = []
+
+    total = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    sans_theme = conn.execute(
+        f"""
+        SELECT COUNT(*) FROM indicators i
+        LEFT JOIN {table} it ON it.indicator_id = i.id
+        WHERE i.source_id = ? AND it.indicator_id IS NULL
+        """,
+        (source_id,),
+    ).fetchone()[0]
+    by_origin = {
+        row["origin"]: row["n"]
+        for row in conn.execute(
+            f"SELECT origin, COUNT(*) AS n FROM {table} GROUP BY origin"
+        ).fetchall()
+    }
+    manual = conn.execute(
+        f"SELECT COUNT(*) FROM {table} WHERE review_status = 'manual_review'"
+    ).fetchone()[0]
+
+    n_official = by_origin.get("official_world_bank", 0)
+    n_databridge = by_origin.get("databridge_prefix_rule", 0)
+
+    messages.append(f"relations totales        : {total}")
+    messages.append(f"indicateurs sans theme   : {sans_theme}")
+    messages.append(f"official_world_bank      : {n_official}")
+    messages.append(f"databridge_prefix_rule   : {n_databridge}")
+    messages.append(f"manual_review            : {manual}")
+
+    ok = True
+    if total <= 0:
+        ok = False; messages.append("ECHEC: aucune relation locale reconstruite.")
+    if sans_theme != 0:
+        ok = False; messages.append(f"ECHEC: {sans_theme} indicateur(s) sans theme.")
+    if n_official <= 0:
+        ok = False; messages.append("ECHEC: aucune relation official_world_bank.")
+    if n_databridge <= 0:
+        ok = False; messages.append("ECHEC: aucune relation databridge_prefix_rule.")
+    if manual <= 0:
+        messages.append("AVERTISSEMENT: aucun manual_review (verifie si attendu).")
+
+    return ok, messages
+
+
+def sync_world_bank_metadata(force: bool = False, limit: int | None = None, *, require_sqlite: bool = True) -> dict[str, Any]:
     global _CURRENT_TIMING, _CURRENT_QUALITY
 
     timing = MetadataSyncTiming()
     _CURRENT_TIMING = timing
     _CURRENT_QUALITY = MetadataQualityTracker()
     summary: dict[str, Any] = {}
+
+    if require_sqlite and getattr(db, "DB_BACKEND", "sqlite") != "sqlite":
+        raise MetadataSyncError(
+            "Mode local requis : ce script doit reconstruire databridge.db en SQLite. "
+            "Passe DATABRIDGE_DB_BACKEND=sqlite ou lance avec --local-sqlite. "
+            "Ne lance plus un ETL World Bank long directement sur Turso."
+        )
 
     with timing.track("database_init"):
         db.init_db()
@@ -386,7 +591,14 @@ def sync_world_bank_metadata(force: bool = False, limit: int | None = None) -> d
                     return summary
 
                 topic_lookup = _sync_topics(session, translator, source_id, conn=conn)
+                conn.commit()  # borne la transaction + rafraichit le stream Turso
+
                 countries_count = _sync_countries(session, translator, conn=conn)
+                conn.commit()  # borne la transaction + rafraichit le stream Turso
+
+                # --- Build LOCAL SQLite ---
+                # Dans la stratégie finale, le long ETL World Bank écrit uniquement
+                # dans databridge.db local. Turso sera recréé/importé ensuite.
                 indicators_count = _sync_indicators(
                     session,
                     translator,
@@ -395,9 +607,25 @@ def sync_world_bank_metadata(force: bool = False, limit: int | None = None) -> d
                     limit=limit,
                     conn=conn,
                 )
+                conn.commit()
+
+                quality_report = validate_metadata_quality(
+                    conn=conn, source_id=source_id, timing=timing
+                )
+                conn.commit()
+
+                checks_ok, checks_msg = _run_local_relations_checks(conn, source_id)
+                print("[WB metadata] controles build local:")
+                for line in checks_msg:
+                    print("   ", line)
+                if not checks_ok:
+                    raise RuntimeError(
+                        "Controles build local non passes : databridge.db ne doit pas etre importe vers Turso. "
+                        "Voir les messages ci-dessus."
+                    )
+
                 with timing.track("metadata_summary"):
                     summary = db.metadata_summary(conn=conn, source_id=source_id)
-                quality_report = validate_metadata_quality(conn=conn, source_id=source_id, timing=timing)
                 summary.update(
                     {
                         "source_code": db.WORLD_BANK_SOURCE["code"],
@@ -675,7 +903,9 @@ def _sync_indicators(
                 conn=conn,
             )
             link_start = time.perf_counter()
-            db.replace_indicator_topics(indicator_id, topic_ids, conn=conn)
+            db.replace_indicator_topics(
+                indicator_id, topic_ids, conn=conn, table=INDICATOR_TOPICS_TABLE
+            )
             if _CURRENT_TIMING is not None:
                 _CURRENT_TIMING.add_stage("liens_indicateur_theme", time.perf_counter() - link_start)
             existing_indicators[code] = {
@@ -689,6 +919,10 @@ def _sync_indicators(
             records=len(batch),
             duration_seconds=time.perf_counter() - write_start,
         )
+        # Persiste chaque lot : si le stream Turso expire pendant la traduction
+        # du lot suivant, les lots deja ecrits sont conserves (pas de grosse
+        # transaction unique qui se perdrait entierement).
+        conn.commit()
     return synced
 
 
@@ -730,23 +964,11 @@ def _extract_topic_ids(
             topic_lookup[topic_key] = topic_id
         if topic_id is not None:
             topic_ids.append(topic_id)
-    if not topic_ids:
-        code = _clean_text(item_en.get("id") or item_fr.get("id"))
-        fallback_topic_id = _classify_indicator_topic_id(
-            code=code,
-            name=_first_non_empty(
-                _clean_text(item_fr.get("name")),
-                _clean_text(item_en.get("name")),
-            ),
-            description=_first_non_empty(
-                _clean_text(item_fr.get("sourceNote")),
-                _clean_text(item_en.get("sourceNote")),
-            ),
-            source_id=source_id,
-            translator=translator,
-            conn=conn,
-        )
-        topic_ids.append(fallback_topic_id)
+    # Plus de fallback ici : les indicateurs sans thème officiel restent SANS
+    # relation après la synchro. Ils sont complétés (avec une origine explicite
+    # databridge_prefix_rule) en phase de validation via
+    # _repair_missing_indicator_topics. Cela évite qu'une relation de complément
+    # soit écrite via replace_indicator_topics avec l'origine officielle par défaut.
     return sorted(set(topic_ids))
 
 
@@ -1128,10 +1350,15 @@ def _resume_appels_banque_mondiale(api_calls: list[dict[str, Any]]) -> list[dict
 
 def validate_metadata_quality(*, conn, source_id: int, timing: MetadataSyncTiming | None = None) -> dict[str, Any]:
     started = time.perf_counter()
-    _ensure_all_system_topics(source_id=source_id, conn=conn)
+    # _ensure_all_system_topics : désactivé. Créait les 19 thèmes système même
+    # inutilisés (thèmes vides qui gonflent le catalogue). La création se fait
+    # désormais à la demande via _ensure_system_topic uniquement quand nécessaire.
     _repair_visible_texts(conn=conn, source_id=source_id)
     _repair_missing_indicator_topics(conn=conn, source_id=source_id)
-    _enforce_priority_indicator_topics(conn=conn, source_id=source_id)
+    # _enforce_priority_indicator_topics : désactivé. Ajoutait des thèmes système
+    # aux indicateurs DÉJÀ classés officiellement (mélange officiel/DataBridge et
+    # gonflement des relations). La complétion traçable de
+    # _repair_missing_indicator_topics couvre proprement les indicateurs sans thème.
     _remove_resolved_a_classer_links(conn=conn, source_id=source_id)
     _merge_duplicate_topics(conn=conn, source_id=source_id)
     conn.commit()
@@ -1192,31 +1419,41 @@ def _repair_visible_texts(*, conn, source_id: int) -> None:
 
 
 def _repair_missing_indicator_topics(*, conn, source_id: int) -> None:
+    """Complète les indicateurs SANS aucune relation (donc sans thème officiel WB)
+    vers un thème officiel 1-21, via les règles versionnées. La relation est
+    marquée origin='databridge_prefix_rule' (+ review_status). Ne touche jamais
+    aux indicateurs qui ont déjà une relation (les officiels)."""
     rows = conn.execute(
-        """
+        f"""
         SELECT i.id, i.code, i.name, i.description
         FROM indicators i
-        LEFT JOIN indicator_topics it ON it.indicator_id = i.id
+        LEFT JOIN {INDICATOR_TOPICS_TABLE} it ON it.indicator_id = i.id
         WHERE i.source_id = ? AND it.indicator_id IS NULL
         """,
         (source_id,),
     ).fetchall()
     for row in rows:
-        topic_id = _classify_indicator_topic_id(
-            code=_clean_text(row["code"]),
-            name=_clean_text(row["name"]),
-            description=_clean_text(row["description"]),
-            source_id=source_id,
-            translator=MetadataTranslator(enabled=False),
-            conn=conn,
-        )
+        code = _clean_text(row["code"])
+        topic_id, review_status = _databridge_complement_for_code(code)
+
+        if topic_id is None or topic_id == A_CLASSER_ID:
+            # aucune règle, ou cas sensible sans thème sûr -> bucket "À classer" visible
+            topic_id = _ensure_system_topic("a_classer", source_id=source_id, conn=conn)
+            if review_status == "none":
+                review_status = "manual_review"
+
         conn.execute(
-            """
-            INSERT OR IGNORE INTO indicator_topics (indicator_id, topic_id)
-            VALUES (?, ?)
+            f"""
+            INSERT OR IGNORE INTO {INDICATOR_TOPICS_TABLE}
+                (indicator_id, topic_id, origin, review_status)
+            VALUES (?, ?, 'databridge_prefix_rule', ?)
             """,
-            (row["id"], topic_id),
+            (row["id"], topic_id, review_status),
         )
+        if _CURRENT_QUALITY is not None:
+            _CURRENT_QUALITY.themes_fallback += 1
+            if review_status == "manual_review":
+                _CURRENT_QUALITY.indicateurs_a_classer.append(code)
 
 
 def _enforce_priority_indicator_topics(*, conn, source_id: int) -> None:
@@ -1245,13 +1482,13 @@ def _enforce_priority_indicator_topics(*, conn, source_id: int) -> None:
 def _remove_resolved_a_classer_links(*, conn, source_id: int) -> None:
     a_classer_id = SYSTEM_TOPICS["a_classer"][0]
     conn.execute(
-        """
-        DELETE FROM indicator_topics
+        f"""
+        DELETE FROM {INDICATOR_TOPICS_TABLE}
         WHERE topic_id = ?
           AND indicator_id IN (
               SELECT i.id
               FROM indicators i
-              JOIN indicator_topics it ON it.indicator_id = i.id
+              JOIN {INDICATOR_TOPICS_TABLE} it ON it.indicator_id = i.id
               WHERE i.source_id = ?
               GROUP BY i.id
               HAVING SUM(CASE WHEN it.topic_id <> ? THEN 1 ELSE 0 END) > 0
@@ -1262,6 +1499,11 @@ def _remove_resolved_a_classer_links(*, conn, source_id: int) -> None:
 
 
 def _merge_duplicate_topics(*, conn, source_id: int) -> None:
+    # Pendant un rebuild isolé, on ne mute pas la table 'topics' (un run qui
+    # échouerait laisserait sinon 'topics' modifiée alors que indicator_topics
+    # de production est préservée). La fusion reste disponible hors rebuild.
+    if INDICATOR_TOPICS_TABLE != PRODUCTION_RELATIONS_TABLE:
+        return
     rows = conn.execute(
         "SELECT id, name FROM topics WHERE source_id = ? ORDER BY id",
         (source_id,),
@@ -1315,10 +1557,10 @@ def _build_metadata_quality_report(*, conn, source_id: int) -> dict[str, Any]:
     tracker = _CURRENT_QUALITY or MetadataQualityTracker()
     indicateurs_sans_theme = _count_scalar(
         conn,
-        """
+        f"""
         SELECT COUNT(*)
         FROM indicators i
-        LEFT JOIN indicator_topics it ON it.indicator_id = i.id
+        LEFT JOIN {INDICATOR_TOPICS_TABLE} it ON it.indicator_id = i.id
         WHERE i.source_id = ? AND it.indicator_id IS NULL
         """,
         (source_id,),
@@ -1336,9 +1578,9 @@ def _build_metadata_quality_report(*, conn, source_id: int) -> dict[str, Any]:
     )
     indicateurs_a_classer = _count_scalar(
         conn,
-        """
+        f"""
         SELECT COUNT(*)
-        FROM indicator_topics it
+        FROM {INDICATOR_TOPICS_TABLE} it
         JOIN indicators i ON i.id = it.indicator_id
         WHERE i.source_id = ? AND it.topic_id = ?
         """,
@@ -1347,9 +1589,9 @@ def _build_metadata_quality_report(*, conn, source_id: int) -> dict[str, Any]:
     source_summary = db.metadata_summary(conn=conn, source_id=source_id)
     liens = _count_scalar(
         conn,
-        """
+        f"""
         SELECT COUNT(*)
-        FROM indicator_topics it
+        FROM {INDICATOR_TOPICS_TABLE} it
         JOIN indicators i ON i.id = it.indicator_id
         WHERE i.source_id = ?
         """,
@@ -1367,10 +1609,10 @@ def _build_metadata_quality_report(*, conn, source_id: int) -> dict[str, Any]:
     premiers_sans_theme = [
         row["code"]
         for row in conn.execute(
-            """
+            f"""
             SELECT i.code
             FROM indicators i
-            LEFT JOIN indicator_topics it ON it.indicator_id = i.id
+            LEFT JOIN {INDICATOR_TOPICS_TABLE} it ON it.indicator_id = i.id
             WHERE i.source_id = ? AND it.indicator_id IS NULL
             ORDER BY i.code
             LIMIT 20
@@ -1630,15 +1872,24 @@ def _clean_text(value: Any) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Synchronise les metadonnees World Bank dans databridge.db.")
+    parser = argparse.ArgumentParser(description="Construit localement databridge.db avec les metadonnees World Bank.")
     parser.add_argument("--force", action="store_true", help="Refait la synchronisation meme si des indicateurs existent deja.")
     parser.add_argument("--limit", type=int, default=None, help="Limite le nombre d'indicateurs synchronises.")
+    parser.add_argument("--local-sqlite", action="store_true", help="Force le backend SQLite dans ce processus.")
+    parser.add_argument("--sqlite-path", default=None, help="Chemin du fichier SQLite local a construire, ex: databridge.db.")
+    parser.add_argument("--allow-turso", action="store_true", help="Option de secours seulement : autorise un run direct Turso (deconseille).")
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    summary = sync_world_bank_metadata(force=args.force, limit=args.limit)
+    if args.local_sqlite or args.sqlite_path:
+        db.configure_backend(backend="sqlite", db_path=args.sqlite_path or "databridge.db")
+    summary = sync_world_bank_metadata(
+        force=args.force,
+        limit=args.limit,
+        require_sqlite=not args.allow_turso,
+    )
     print(summary)
 
 

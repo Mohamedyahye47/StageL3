@@ -10,7 +10,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE_ROOT = PROJECT_ROOT.parent
@@ -42,6 +42,31 @@ DB_BACKEND = (os.getenv("DATABRIDGE_DB_BACKEND") or "sqlite").strip().lower()
 DB_PATH = _resolve_db_path(os.getenv("DATABRIDGE_DB_PATH") or os.getenv("DB_PATH"))
 TURSO_DATABASE_URL = (os.getenv("TURSO_DATABASE_URL") or "").strip()
 TURSO_AUTH_TOKEN = (os.getenv("TURSO_AUTH_TOKEN") or "").strip()
+
+
+def configure_backend(
+    *,
+    backend: str | None = None,
+    db_path: str | Path | None = None,
+    turso_url: str | None = None,
+    turso_token: str | None = None,
+) -> None:
+    """Configure le backend DB dans le processus courant.
+
+    Utile pour lancer un build local propre depuis core/wb_metadata.py sans
+    modifier les variables d'environnement globales du terminal.
+    Exemple : configure_backend(backend="sqlite", db_path="databridge.db").
+    """
+    global DB_BACKEND, DB_PATH, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
+
+    if backend is not None:
+        DB_BACKEND = str(backend).strip().lower()
+    if db_path is not None:
+        DB_PATH = _resolve_db_path(str(db_path))
+    if turso_url is not None:
+        TURSO_DATABASE_URL = str(turso_url).strip()
+    if turso_token is not None:
+        TURSO_AUTH_TOKEN = str(turso_token).strip()
 
 
 def _is_placeholder(value: str | None) -> bool:
@@ -185,26 +210,64 @@ class TursoCursor:
 
 
 class TursoConnection:
-    """DB-API compatibility shim around libsql for the subset used by DataBridge."""
+    """DB-API compatibility shim around libsql for the subset used by DataBridge.
 
-    def __init__(self, raw_connection: Any):
+    Robustesse Turso/Hrana : un stream libSQL est ephemere et peut expirer
+    pendant les longues phases reseau (World Bank / traduction). Cette classe
+    detecte les erreurs "stream not found" / 404 et rouvre automatiquement une
+    connexion brute, puis rejoue l'instruction. rollback()/close() sont rendus
+    defensifs pour ne jamais masquer l'erreur d'origine.
+    """
+
+    def __init__(self, raw_connection: Any, reopen: "Callable[[], Any] | None" = None):
         self._raw = raw_connection
+        self._reopen = reopen  # fabrique une nouvelle connexion brute libsql
 
     def __enter__(self) -> "TursoConnection":
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:
+        # Defensif : ni commit ni rollback ne doivent relancer une exception
+        # (sinon un stream deja mort masque l'erreur metier d'origine).
         try:
             if exc_type is None:
                 self.commit()
             else:
                 self.rollback()
+        except Exception:
+            pass
         finally:
             self.close()
 
+    @staticmethod
+    def _is_stream_dead(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return (
+            "stream not found" in text
+            or "404 not found" in text
+            or "status=404" in text
+        )
+
+    def _reconnect(self) -> bool:
+        """Rouvre une connexion brute. Retourne True si reussi."""
+        if self._reopen is None:
+            return False
+        try:
+            self._raw = self._reopen()
+            return True
+        except Exception:
+            return False
+
     def execute(self, sql: str, parameters: Iterable[Any] | dict[str, Any] | None = None) -> TursoCursor:
         normalized_sql, normalized_parameters = _normalize_turso_parameters(sql, parameters)
-        cursor = self._raw.execute(normalized_sql, normalized_parameters)
+        try:
+            cursor = self._raw.execute(normalized_sql, normalized_parameters)
+        except Exception as exc:
+            # Stream expire : on rouvre un stream neuf et on rejoue une fois.
+            if self._is_stream_dead(exc) and self._reconnect():
+                cursor = self._raw.execute(normalized_sql, normalized_parameters)
+            else:
+                raise
         return TursoCursor(self, cursor, normalized_sql)
 
     def executemany(self, sql: str, seq_of_parameters: Iterable[Iterable[Any] | dict[str, Any]]) -> None:
@@ -217,24 +280,43 @@ class TursoConnection:
 
     def commit(self) -> None:
         commit = getattr(self._raw, "commit", None)
-        if commit is not None:
+        if commit is None:
+            return
+        try:
             commit()
+        except Exception as exc:
+            # Si le stream est mort, le commit n'a plus de sens (les ecritures
+            # non encore persistees sont perdues) : on rouvre pour la suite,
+            # sans relancer l'exception qui ferait planter tout le script.
+            if self._is_stream_dead(exc):
+                self._reconnect()
+            else:
+                raise
 
     def rollback(self) -> None:
         rollback = getattr(self._raw, "rollback", None)
-        if rollback is not None:
+        if rollback is None:
+            return
+        try:
             rollback()
+        except Exception:
+            # Defensif : un rollback sur stream mort ne doit jamais crasher.
+            self._reconnect()
 
     def close(self) -> None:
         close = getattr(self._raw, "close", None)
-        if close is not None:
+        if close is None:
+            return
+        try:
             close()
+        except Exception:
+            pass
 
     def cursor(self) -> "TursoConnection":
         return self
 
     def last_insert_rowid(self) -> int | None:
-        row = self._raw.execute("SELECT last_insert_rowid()").fetchone()
+        row = self.execute("SELECT last_insert_rowid()").fetchone()
         if row is None:
             return None
         return int(row[0])
@@ -274,8 +356,11 @@ def _open_turso_connection() -> TursoConnection:
         raise RuntimeError(
             "Le package Python 'libsql' est requis quand DATABRIDGE_DB_BACKEND=turso."
         ) from exc
-    raw = libsql.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
-    return TursoConnection(raw)
+
+    def _open_raw():
+        return libsql.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
+
+    return TursoConnection(_open_raw(), reopen=_open_raw)
 
 WB_SOURCE = {
     "code": "WB",
@@ -497,23 +582,42 @@ def replace_indicator_topics(
     indicator_id: int,
     topic_ids: list[int],
     *,
+    origin: str = "official_world_bank",
+    table: str = "indicator_topics",
     conn: sqlite3.Connection | None = None,
 ) -> None:
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
     try:
+        # Ne supprime QUE les relations de cette origine : les compléments
+        # databridge survivent aux resynchros officielles, et inversement.
         conn.execute(
-            "DELETE FROM indicator_topics WHERE indicator_id = ?",
-            (indicator_id,),
+            f"DELETE FROM {table} WHERE indicator_id = ? AND origin = ?",
+            (indicator_id, origin),
         )
         for topic_id in sorted(set(topic_ids)):
+            # Upgrade : si World Bank fournit officiellement un thème déjà posé
+            # par databridge, on PROMEUT la relation au lieu de la dupliquer.
+            # La clé primaire (indicator_id, topic_id) empêche tout doublon, donc
+            # un simple UPDATE ciblé suffit (pas de GROUP BY / HAVING).
+            if origin == "official_world_bank":
+                conn.execute(
+                    f"""
+                    UPDATE {table}
+                    SET origin = 'official_world_bank', review_status = 'none'
+                    WHERE indicator_id = ? AND topic_id = ?
+                      AND origin = 'databridge_prefix_rule'
+                    """,
+                    (indicator_id, topic_id),
+                )
             conn.execute(
-                """
-                INSERT OR IGNORE INTO indicator_topics (indicator_id, topic_id)
-                VALUES (?, ?)
+                f"""
+                INSERT OR IGNORE INTO {table}
+                    (indicator_id, topic_id, origin)
+                VALUES (?, ?, ?)
                 """,
-                (indicator_id, topic_id),
+                (indicator_id, topic_id, origin),
             )
         if owns_connection:
             conn.commit()

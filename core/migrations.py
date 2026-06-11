@@ -44,8 +44,10 @@ CREATE INDEX IF NOT EXISTS idx_indicators_name
     ON indicators (name);
 
 CREATE TABLE IF NOT EXISTS indicator_topics (
-    indicator_id INTEGER NOT NULL,
-    topic_id     INTEGER NOT NULL,
+    indicator_id  INTEGER NOT NULL,
+    topic_id      INTEGER NOT NULL,
+    origin        TEXT NOT NULL DEFAULT 'official_world_bank',
+    review_status TEXT NOT NULL DEFAULT 'none',
     PRIMARY KEY (indicator_id, topic_id),
     FOREIGN KEY (indicator_id) REFERENCES indicators(id),
     FOREIGN KEY (topic_id) REFERENCES topics(id)
@@ -133,8 +135,27 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     _migrate_topics_table(conn)
     _migrate_indicators_table(conn)
     _migrate_indicator_topics_table(conn)
+    _add_indicator_topics_tracking_columns(conn)
     conn.executescript(TARGET_SCHEMA)
     conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _add_indicator_topics_tracking_columns(conn: sqlite3.Connection) -> None:
+    """Ajoute origin / review_status si absentes. Idempotent : ne fait rien si
+    les colonnes existent déjà (cas Turso où elles sont déjà présentes)."""
+    if not _table_exists(conn, "indicator_topics"):
+        return
+    columns = set(_table_columns(conn, "indicator_topics"))
+    if "origin" not in columns:
+        conn.execute(
+            "ALTER TABLE indicator_topics "
+            "ADD COLUMN origin TEXT NOT NULL DEFAULT 'official_world_bank'"
+        )
+    if "review_status" not in columns:
+        conn.execute(
+            "ALTER TABLE indicator_topics "
+            "ADD COLUMN review_status TEXT NOT NULL DEFAULT 'none'"
+        )
 
 
 def _drop_retired_tables(conn: sqlite3.Connection) -> None:
@@ -238,7 +259,7 @@ def _migrate_indicator_topics_table(conn: sqlite3.Connection) -> None:
         return
 
     columns = set(_table_columns(conn, "indicator_topics"))
-    if columns == {"indicator_id", "topic_id"}:
+    if {"indicator_id", "topic_id"}.issubset(columns):
         return
 
     if not _table_exists(conn, "indicator_topics_legacy"):
