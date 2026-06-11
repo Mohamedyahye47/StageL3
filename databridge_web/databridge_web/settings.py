@@ -53,17 +53,6 @@ def _require_no_local_values(name: str, values: list[str]) -> None:
         )
 
 
-def _require_https_url(name: str) -> str:
-    value = _require_env(name).rstrip("/")
-
-    if _is_local_value(value):
-        raise RuntimeError(f"{name} ne doit pas pointer vers localhost en production Render.")
-
-    if not value.lower().startswith("https://"):
-        raise RuntimeError(f"{name} doit commencer par https:// sur Render.")
-
-    return value
-
 
 def _turso_http_url(database_url: str) -> str:
     database_url = database_url.strip().rstrip("/")
